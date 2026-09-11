@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { COLORS } from "../theme.js";
 import { Field, Btn, inputStyle } from "../components/ui.jsx";
-import { api } from "../api.js";
+import { api, BASE } from "../api.js";
 import LanguageDropdown from "../components/LanguageDropdown.jsx";
 import {
   signInWithGoogleViaFirebase,
@@ -442,8 +442,30 @@ export default function Login({ lang, setLang, t, onAuthed }) {
               )}
 
               {error && (
-                <div style={{ color: COLORS.danger, fontSize: 13, background: "#ffebee", padding: "8px 12px", borderRadius: 8, marginBottom: 14, textAlign: "center" }}>
-                  {error}
+                <div style={{ color: COLORS.danger, fontSize: 13, background: "#ffebee", padding: "10px 14px", borderRadius: 8, marginBottom: 14, textAlign: "left", lineHeight: 1.5, border: "1px solid #ffcdd2" }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Connection Notice:</div>
+                  <div>{error}</div>
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #ef9a9a", fontSize: 12, color: COLORS.charcoal }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                      <span><strong>Target API:</strong> <code style={{ background: "#fff", padding: "2px 6px", borderRadius: 4 }}>{BASE}</code></span>
+                      <a
+                        href={`${BASE.startsWith("http") ? BASE : window.location.origin + BASE}/health`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          color: COLORS.forest,
+                          fontWeight: 700,
+                          textDecoration: "underline",
+                          cursor: "pointer"
+                        }}
+                      >
+                        Wake Up / Test API ↗
+                      </a>
+                    </div>
+                  </div>
                 </div>
               )}
 

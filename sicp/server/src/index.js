@@ -9,16 +9,18 @@ const chatbotRoutes = require("./routes/chatbot");
 
 const app = express();
 
-const allowedOrigins = (process.env.CLIENT_ORIGIN || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
 app.use(
   cors({
-    origin: allowedOrigins.length ? allowedOrigins : true,
+    origin: (origin, callback) => {
+      // Echo origin back so credentials and all Vercel domains work seamlessly
+      callback(null, true);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+app.options("*", cors());
 app.use(express.json());
 
 app.get("/api/health", (req, res) => res.json({ ok: true, service: "sicp-server" }));

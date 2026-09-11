@@ -1,6 +1,14 @@
 // Robust API URL resolution: handles local relative proxy and production Render/Vercel URLs
-const rawEnvUrl = (import.meta.env.VITE_API_URL || "").trim().replace(/\/+$/, "");
-const BASE = (!rawEnvUrl || rawEnvUrl.includes(":4000") || rawEnvUrl.includes("localhost"))
+let rawEnvUrl = (import.meta.env.VITE_API_URL || "").trim().replace(/\/+$/, "");
+
+// Prevent Mixed-Content browser block: If user is on https://, upgrade http:// API URLs to https://
+if (typeof window !== "undefined" && window.location.protocol === "https:" && rawEnvUrl.startsWith("http://") && !rawEnvUrl.includes("localhost")) {
+  rawEnvUrl = rawEnvUrl.replace("http://", "https://");
+}
+
+const isLocalhostHost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+
+export const BASE = (!rawEnvUrl || rawEnvUrl.includes(":4000") || (isLocalhostHost && rawEnvUrl.includes("localhost")))
   ? "/api"
   : (rawEnvUrl.endsWith("/api") ? rawEnvUrl : `${rawEnvUrl}/api`);
 
@@ -19,13 +27,19 @@ async function request(path, { method = "GET", body } = {}) {
     });
     let data;
     try { data = await res.json(); } catch { data = {}; }
-    if (!res.ok) throw new Error(data.error || "Something went wrong");
+    if (!res.ok) throw new Error(data.error || "Something went wrong on the server");
     return data;
   } catch (err) {
     if (err.name === "TypeError" && err.message?.toLowerCase().includes("fetch")) {
-      // If direct relative call had an issue or was blocked
-      console.error("[SICP API] Fetch error connecting to", `${BASE}${path}`, err);
-      throw new Error("Unable to connect to the portal server. Please check your connection or reload the page.");
+      console.error("[SICP API] Fetch error connecting to:", `${BASE}${path}`, err);
+      if (BASE === "/api" && !isLocalhostHost) {
+        throw new Error(
+          "Backend URL not configured on Vercel. Please add 'VITE_API_URL' with your Render URL in Vercel Environment Variables and redeploy."
+        );
+      }
+      throw new Error(
+        `Unable to reach server at ${BASE}. If your backend is on Render free tier, it may be waking up (takes ~30-50s). Please wait a moment and try again.`
+      );
     }
     throw err;
   }
