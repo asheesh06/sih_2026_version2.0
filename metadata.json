@@ -1,0 +1,11 @@
+{
+  "name": "Societal Innovation Collaboration Portal",
+  "description": "A multi-stakeholder collaboration platform connecting citizens, government, universities, and industries to solve societal challenges in Jharkhand.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

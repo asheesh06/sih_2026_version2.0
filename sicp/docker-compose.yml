@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: sicp-mongo
+    restart: unless-stopped
+    volumes:
+      - sicp-mongo:/data/db
+
+  server:
+    build: ./server
+    container_name: sicp-server
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      - PORT=4000
+      - JWT_SECRET=${JWT_SECRET:-change-this-to-a-long-random-string-in-production}
+      - MONGODB_URI=mongodb://mongo:27017/sicp
+      - CLIENT_ORIGIN=http://localhost:8080
+    ports:
+      - "4000:4000"
+
+  client:
+    build:
+      context: ./client
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    container_name: sicp-client
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "8080:80"
+
+volumes:
+  sicp-mongo:
