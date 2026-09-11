@@ -152,17 +152,18 @@ async function seedDemoUsersAndProblems() {
 
 async function connectDb() {
   const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/sicp_local";
+  const isCloudUri = Boolean(process.env.MONGODB_URI);
   try {
     mongoose.set("strictQuery", true);
     mongoose.set("bufferCommands", false);
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 1500 });
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: isCloudUri ? 10000 : 1500 });
     setMongoConnected(true);
-    console.log(`[Local Mongoose DB] Connected to MongoDB at ${uri}`);
+    console.log(`[Database] Connected successfully to MongoDB at ${uri.split("@")[1] || uri}`);
     await seedOrganisations();
     await seedDemoUsersAndProblems();
   } catch (err) {
     console.log(
-      `[Local Mongoose DB] No external MongoDB daemon found (${err.message}) — using persistent local Mongoose store at data/local_mongoose_db.json`
+      `[Database] No external MongoDB reachable (${err.message}) — using persistent local JSON database at data/local_mongoose_db.json`
     );
     setMongoConnected(false);
     await seedOrganisations();
