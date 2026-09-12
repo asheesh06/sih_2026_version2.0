@@ -26,6 +26,21 @@ const milestoneSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const tenderSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    industry_name: { type: String, required: true },
+    industry_id: { type: String, default: null },
+    budget_amount: { type: Number, required: true },
+    timeline: { type: String, required: true },
+    resources: { type: String, default: null },
+    proposal_notes: { type: String, default: null },
+    status: { type: String, default: "submitted" }, // "submitted" | "selected" | "rejected"
+    created_at: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const problemSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
@@ -51,6 +66,8 @@ const problemSchema = new mongoose.Schema(
     photo_url: { type: String, default: null },
     history: { type: [String], default: [] },
     milestones: { type: [milestoneSchema], default: [] },
+    tenders: { type: [tenderSchema], default: [] },
+    selected_tender_id: { type: String, default: null },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
@@ -144,6 +161,8 @@ function createProblemDoc(item) {
     updated_at: item.updated_at || new Date(),
     milestones: (item.milestones || []).map((m) => ({ ...m })),
     history: [...(item.history || [])],
+    tenders: (item.tenders || []).map((t) => ({ ...t })),
+    selected_tender_id: item.selected_tender_id || null,
   };
   doc.save = async function () {
     this.updated_at = new Date();
@@ -316,6 +335,18 @@ function serializeProblem(p) {
       title: m.title,
       done: !!m.done,
     })),
+    tenders: (row.tenders || []).map((t) => ({
+      id: t.id,
+      industry_name: t.industry_name,
+      industry_id: t.industry_id || null,
+      budget_amount: t.budget_amount,
+      timeline: t.timeline,
+      resources: t.resources || null,
+      proposal_notes: t.proposal_notes || null,
+      status: t.status || "submitted",
+      created_at: t.created_at || null,
+    })),
+    selected_tender_id: row.selected_tender_id || null,
   };
 }
 

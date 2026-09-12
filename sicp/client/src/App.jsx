@@ -93,7 +93,7 @@ export default function App() {
   };
 
   const dashByRole = {
-    citizen: <CitizenDash tab={activeTab} lang={lang} t={t} onOpen={setOpenProblem} refreshKey={refreshKey} bumpRefresh={bumpRefresh} />,
+    citizen: <CitizenDash tab={activeTab} setActiveTab={setActiveTab} lang={lang} t={t} onOpen={setOpenProblem} refreshKey={refreshKey} bumpRefresh={bumpRefresh} />,
     government: <GovernmentDash tab={activeTab} lang={lang} t={t} onOpen={setOpenProblem} refreshKey={refreshKey} />,
     university: <UniversityDash tab={activeTab} lang={lang} t={t} user={user} onOpen={setOpenProblem} refreshKey={refreshKey} />,
     industry: <IndustryDash tab={activeTab} lang={lang} t={t} user={user} onOpen={setOpenProblem} refreshKey={refreshKey} />,

@@ -21,7 +21,8 @@ app.use(
   })
 );
 app.options("*", cors());
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true, service: "sicp-server" }));
 app.use("/api/auth", authRoutes);
@@ -29,8 +30,11 @@ app.use("/api/problems", problemRoutes);
 app.use("/api/chatbot", chatbotRoutes);
 
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: "Something went wrong on the server" });
+  console.error("[Server Error]", err);
+  if (err.type === "entity.too.large" || err.status === 413) {
+    return res.status(413).json({ error: "Image file is too large. Please select a smaller photo." });
+  }
+  res.status(err.status || 500).json({ error: err.message || "Something went wrong on the server" });
 });
 
 const PORT = process.env.PORT || 4000;

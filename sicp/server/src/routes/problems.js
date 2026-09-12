@@ -33,11 +33,15 @@ router.get(
       );
     }
     if (req.user.role === "industry") {
-      const org = await Organisation.findOne({ name: req.user.org_name });
-      const focus = org ? org.focus.split(",") : [];
-      rows = rows.filter(
-        (p) => (p.status === "industry_requested" && focus.includes(p.category)) || p.industry === req.user.org_name
-      );
+      rows = rows.filter((p) => {
+        // Any problem forwarded for open industry tenders / bidding
+        if (p.status === "industry_requested" || p.status === "budget_review") return true;
+        // Any problem where this industry is awarded or assigned
+        if (p.industry === req.user.org_name) return true;
+        // Any problem where this industry has submitted a tender
+        if (Array.isArray(p.tenders) && p.tenders.some((t) => t.industry_name === req.user.org_name)) return true;
+        return false;
+      });
     }
     if (status) rows = rows.filter((p) => p.status === status);
 
@@ -86,6 +90,7 @@ router.post(
     const historyEntries = ["Reported by citizen (GPS verified)"];
     if (photo_url) historyEntries.push("Photo evidence attached");
     historyEntries.push(`AI categorised as ${category} (${confidence}%)`);
+    historyEntries.push("Forwarded to Government Official for review & university allocation");
 
     const problem = await Problem.create({
       _id: id,
@@ -141,7 +146,7 @@ router.post(
   })
 );
 
-// ---- University: form team ----
+// ---- University: submit solution & research plan (Directly forwards to registered industries) ----
 router.post(
   "/:id/form-team",
   requireAuth,
@@ -155,18 +160,22 @@ router.post(
     }
     if (!mentor || !students) return res.status(400).json({ error: "mentor and students are required" });
 
-    p.status = "team_formed";
+    // Directly forward solution to registered industries on the portal
+    p.status = "industry_requested";
     p.mentor = mentor;
     p.students = students;
     p.proposal = proposal || null;
     p.university = req.user.org_name || p.university;
-    addHistory(p, "Team formed by university");
+    addHistory(
+      p,
+      `Technical solution submitted by ${p.university}. Directly forwarded to registered industries for tender submissions.`
+    );
     await p.save();
     res.json({ problem: serializeProblem(p) });
   })
 );
 
-// ---- University: request industry partner ----
+// ---- University: request industry partner (fallback) ----
 router.post(
   "/:id/request-industry",
   requireAuth,
@@ -174,60 +183,140 @@ router.post(
   asyncHandler(async (req, res) => {
     const p = await Problem.findById(req.params.id);
     if (!p) return res.status(404).json({ error: "Problem not found" });
-    if (p.status !== "team_formed") {
-      return res.status(409).json({ error: "Form a team before requesting an industry partner" });
-    }
-
     p.status = "industry_requested";
-    addHistory(p, "Industry partner requested by university");
+    addHistory(p, "Open for registered industry tender submissions");
     await p.save();
     res.json({ problem: serializeProblem(p) });
   })
 );
 
-// ---- Industry: submit execution proposal ----
-router.post(
-  "/:id/submit-proposal",
-  requireAuth,
-  requireRole("industry"),
-  asyncHandler(async (req, res) => {
-    const { timeline, resources, budget_amount } = req.body || {};
-    const p = await Problem.findById(req.params.id);
-    if (!p) return res.status(404).json({ error: "Problem not found" });
-    if (p.status !== "industry_requested") {
-      return res.status(409).json({ error: "This problem is not awaiting an industry proposal" });
+// ---- Industry: send / submit tender ----
+async function handleTenderSubmission(req, res) {
+  const { timeline, resources, budget_amount, proposal_notes } = req.body || {};
+  const p = await Problem.findById(req.params.id);
+  if (!p) return res.status(404).json({ error: "Problem not found" });
+  if (p.status !== "industry_requested" && p.status !== "budget_review") {
+    return res.status(409).json({ error: "This problem is not currently open for industry tenders" });
+  }
+  if (!timeline || !budget_amount) {
+    return res.status(400).json({ error: "timeline and budget_amount are required" });
+  }
+
+  if (!Array.isArray(p.tenders)) {
+    p.tenders = [];
+  }
+
+  const tenderId = "TND-" + nanoid(6).toUpperCase();
+  const indName = req.user.org_name || req.user.name;
+  const newTender = {
+    id: tenderId,
+    industry_name: indName,
+    industry_id: req.user.id,
+    budget_amount: Number(budget_amount),
+    timeline,
+    resources: resources || null,
+    proposal_notes: proposal_notes || null,
+    status: "submitted",
+    created_at: new Date(),
+  };
+
+  const existingIdx = p.tenders.findIndex((t) => t.industry_name === indName);
+  if (existingIdx >= 0) {
+    p.tenders[existingIdx] = newTender;
+  } else {
+    p.tenders.push(newTender);
+  }
+
+  p.status = "budget_review"; // Forwarded to Government for tender selection
+  p.timeline = timeline;
+  p.resources = resources || null;
+  p.budget_amount = Number(budget_amount);
+  if (!p.industry) p.industry = indName;
+
+  addHistory(
+    p,
+    `Tender of ₹${Number(budget_amount).toLocaleString("en-IN")} submitted by ${indName} (${timeline}). Forwarded to Government Official for tender selection.`
+  );
+  await p.save();
+  res.json({ problem: serializeProblem(p), tender: newTender });
+}
+
+router.post("/:id/tender", requireAuth, requireRole("industry"), asyncHandler(handleTenderSubmission));
+router.post("/:id/submit-proposal", requireAuth, requireRole("industry"), asyncHandler(handleTenderSubmission));
+
+// ---- Government: select any one tender and start ground implementation ----
+async function handleTenderSelection(req, res) {
+  const { tender_id } = req.body || {};
+  const p = await Problem.findById(req.params.id);
+  if (!p) return res.status(404).json({ error: "Problem not found" });
+  if (p.status !== "budget_review" && p.status !== "industry_requested") {
+    return res.status(409).json({ error: "This problem is not awaiting tender selection" });
+  }
+
+  let selectedTender = null;
+  if (Array.isArray(p.tenders) && p.tenders.length > 0) {
+    if (tender_id) {
+      selectedTender = p.tenders.find((t) => t.id === tender_id);
     }
-    if (!timeline || !budget_amount) return res.status(400).json({ error: "timeline and budget_amount are required" });
+    if (!selectedTender) {
+      selectedTender = p.tenders[0];
+    }
+  }
 
-    p.status = "budget_review";
-    p.timeline = timeline;
-    p.resources = resources || null;
-    p.budget_amount = Number(budget_amount);
-    p.industry = req.user.org_name;
-    addHistory(p, `Execution proposal submitted by ${req.user.org_name} for government budget review`);
-    await p.save();
-    res.json({ problem: serializeProblem(p) });
-  })
-);
+  if (!selectedTender) {
+    selectedTender = {
+      id: "TND-DEF",
+      industry_name: p.industry || "Industry Partner",
+      budget_amount: p.budget_amount || 0,
+      timeline: p.timeline || "12 weeks",
+      resources: p.resources || "Ground technical resources",
+    };
+  }
 
-// ---- Government: approve / reject budget ----
-router.post(
-  "/:id/approve-budget",
-  requireAuth,
-  requireRole("government"),
-  asyncHandler(async (req, res) => {
-    const p = await Problem.findById(req.params.id);
-    if (!p) return res.status(404).json({ error: "Problem not found" });
-    if (p.status !== "budget_review") return res.status(409).json({ error: "This problem is not awaiting budget approval" });
+  if (Array.isArray(p.tenders)) {
+    p.tenders.forEach((t) => {
+      t.status = t.id === selectedTender.id ? "selected" : "rejected";
+    });
+  }
 
-    p.status = "in_progress";
-    p.progress = 0;
-    p.milestones.push({ id: nanoid(8), title: "Project kick-off", done: true });
-    addHistory(p, "Budget approved by Govt.; ground work started");
-    await p.save();
-    res.json({ problem: serializeProblem(p) });
-  })
-);
+  p.status = "in_progress"; // Ground implementation started!
+  p.progress = Math.max(p.progress || 0, 5);
+  p.selected_tender_id = selectedTender.id;
+  p.industry = selectedTender.industry_name;
+  p.budget_amount = selectedTender.budget_amount;
+  p.timeline = selectedTender.timeline;
+  p.resources = selectedTender.resources;
+
+  if (!p.milestones || p.milestones.length === 0) {
+    p.milestones = [
+      {
+        id: nanoid(8),
+        title: `Tender awarded to ${selectedTender.industry_name} (₹${Number(selectedTender.budget_amount).toLocaleString("en-IN")})`,
+        done: true,
+      },
+      { id: nanoid(8), title: "Ground mobilization & equipment setup", done: false },
+      { id: nanoid(8), title: "Prototype testing & field execution", done: false },
+      { id: nanoid(8), title: "Final community verification & handover", done: false },
+    ];
+  } else {
+    p.milestones.unshift({
+      id: nanoid(8),
+      title: `Tender awarded to ${selectedTender.industry_name}`,
+      done: true,
+    });
+  }
+
+  addHistory(
+    p,
+    `Government Official selected tender from ${selectedTender.industry_name} (₹${Number(selectedTender.budget_amount).toLocaleString("en-IN")}, ${selectedTender.timeline}). Ground implementation started!`
+  );
+
+  await p.save();
+  res.json({ problem: serializeProblem(p), selectedTender });
+}
+
+router.post("/:id/select-tender", requireAuth, requireRole("government"), asyncHandler(handleTenderSelection));
+router.post("/:id/approve-budget", requireAuth, requireRole("government"), asyncHandler(handleTenderSelection));
 
 router.post(
   "/:id/reject-budget",
@@ -239,7 +328,7 @@ router.post(
     if (p.status !== "budget_review") return res.status(409).json({ error: "This problem is not awaiting budget approval" });
 
     p.status = "budget_rejected";
-    addHistory(p, "Budget sent back for revision by Govt.");
+    addHistory(p, "Tenders sent back for revision by Govt. Official");
     await p.save();
     res.json({ problem: serializeProblem(p) });
   })

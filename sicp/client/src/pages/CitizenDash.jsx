@@ -9,6 +9,9 @@ import {
   X,
   CheckCircle2,
   Upload,
+  ArrowRight,
+  Clock,
+  CheckCircle,
 } from "lucide-react";
 import { COLORS } from "../theme.js";
 import { Field, Btn, Badge, inputStyle } from "../components/ui.jsx";
@@ -16,6 +19,7 @@ import ProblemCard from "../components/ProblemCard.jsx";
 import { api } from "../api.js";
 import { getCategoryLabel } from "../i18n.js";
 import { CameraCaptureModal } from "../components/CameraCaptureModal.jsx";
+import { compressImage } from "../utils/imageCompressor.js";
 
 function SectionTitle({ children }) {
   return (
@@ -25,7 +29,7 @@ function SectionTitle({ children }) {
   );
 }
 
-export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefresh }) {
+export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refreshKey, bumpRefresh }) {
   const [mine, setMine] = useState([]);
   const [impact, setImpact] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +44,8 @@ export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefr
   const [photoName, setPhotoName] = useState("");
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [optimizingImage, setOptimizingImage] = useState(false);
+  const [submittedSuccess, setSubmittedSuccess] = useState(null);
   const galleryInputRef = useRef(null);
 
   const [busy, setBusy] = useState(false);
@@ -114,25 +120,142 @@ export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefr
     }
   }, [tab, refreshKey]);
 
-  function handleImageFile(file) {
+  async function handleImageFile(file) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       setError(lang === "hi" ? "कृपया केवल एक फोटो चुनें।" : "Please select an image file.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPhotoUrl(e.target.result);
-      setPhotoName(file.name);
-      setError("");
-    };
-    reader.readAsDataURL(file);
+    setOptimizingImage(true);
+    setError("");
+    try {
+      const compressedDataUrl = await compressImage(file, 1280, 1280, 0.80);
+      setPhotoUrl(compressedDataUrl);
+      setPhotoName(file.name || "uploaded_evidence.jpg");
+    } catch (err) {
+      console.error("Compression error:", err);
+      setError(lang === "hi" ? "फोटो प्रोसेस करने में त्रुटि हुई।" : "Failed to process photo.");
+    } finally {
+      setOptimizingImage(false);
+    }
   }
 
   if (tab === "new") {
     return (
       <div>
         <SectionTitle>{t.submitTitle}</SectionTitle>
+
+        {/* Prominent Forwarded-to-Government Success Banner */}
+        {submittedSuccess && (
+          <div
+            style={{
+              background: "#eef7ee",
+              border: `1.5px solid ${COLORS.forest}`,
+              borderRadius: 12,
+              padding: "16px 20px",
+              marginBottom: 20,
+              maxWidth: 560,
+              boxShadow: "0 4px 14px rgba(45,90,60,0.12)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  background: COLORS.forest,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  color: "#fff",
+                }}
+              >
+                <CheckCircle size={22} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: COLORS.forestDark, marginBottom: 4 }}>
+                  {lang === "hi"
+                    ? "समस्या दर्ज हुई और सरकारी अधिकारी को भेजी गई!"
+                    : lang === "khortha" || lang === "kht"
+                    ? "समस्या दरज भेल आर सरकारी अधिकारी के भेजल गेल!"
+                    : "Problem Submitted & Forwarded to Government Official!"}
+                </div>
+                <div style={{ fontSize: 13, color: COLORS.charcoal, marginBottom: 8, lineHeight: 1.5 }}>
+                  {lang === "hi"
+                    ? `आपकी समस्या #${submittedSuccess.id} दर्ज कर ली गई है और समीक्षा हेतु सरकारी अधिकारी के पोर्टल पर अग्रेषित कर दी गई है।`
+                    : `Your issue (ID: ${submittedSuccess.id}) with attached photo evidence has been forwarded to Government Officials for review and university allocation.`}
+                </div>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "rgba(45,90,60,0.12)",
+                    color: COLORS.forest,
+                    padding: "4px 10px",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    marginBottom: 12,
+                  }}
+                >
+                  <Clock size={13} />
+                  <span>
+                    {lang === "hi"
+                      ? "वर्तमान स्थिति: सरकारी समीक्षाधीन (Pending Govt. Review)"
+                      : "Current Status: Pending Government Official Review"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {setActiveTab && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab("mine");
+                        setSubmittedSuccess(null);
+                      }}
+                      style={{
+                        background: COLORS.forest,
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "8px 14px",
+                        fontSize: 12.5,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <span>{lang === "hi" ? "मेरी समस्याएं देखें" : "View in My Problems"}</span>
+                      <ArrowRight size={14} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSubmittedSuccess(null)}
+                    style={{
+                      background: "#fff",
+                      color: COLORS.charcoal,
+                      border: `1px solid ${COLORS.line}`,
+                      borderRadius: 8,
+                      padding: "8px 14px",
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {lang === "hi" ? "एक और समस्या दर्ज करें" : "Report Another Issue"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 12, padding: 20, maxWidth: 560 }}>
           <Field label={t.fieldTitle}>
             <input
@@ -323,6 +446,13 @@ export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefr
                     <Upload size={16} color={COLORS.forest} /> {t.attachGallery}
                   </button>
                 </div>
+
+                {optimizingImage && (
+                  <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(45,90,60,0.08)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 12, color: COLORS.forest, fontWeight: 600 }}>
+                    <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />
+                    <span>{lang === "hi" ? "फोटो को संपीड़ित एवं तैयार किया जा रहा है..." : "Optimizing photo for fast submission..."}</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{
@@ -398,11 +528,13 @@ export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefr
 
           <Btn
             icon={Send}
-            disabled={busy || !title || !desc || !location}
+            disabled={busy || optimizingImage || !title || !desc || !location}
             onClick={async () => {
-              setBusy(true); setError("");
+              setBusy(true);
+              setError("");
+              setSubmittedSuccess(null);
               try {
-                await api.submitProblem({
+                const res = await api.submitProblem({
                   title,
                   description: desc,
                   location,
@@ -412,6 +544,7 @@ export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefr
                 setDesc("");
                 setPhotoUrl(null);
                 setPhotoName("");
+                setSubmittedSuccess(res.problem);
                 bumpRefresh();
               } catch (e) {
                 setError(e.message);
@@ -420,16 +553,16 @@ export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefr
               }
             }}
           >
-            {t.submit}
+            {busy ? (lang === "hi" ? "जमा हो रहा है..." : "Submitting...") : t.submit}
           </Btn>
 
           <div style={{ marginTop: 14, fontSize: 11.5, color: COLORS.ink, display: "flex", gap: 6, alignItems: "flex-start" }}>
             <ShieldCheck size={14} style={{ flexShrink: 0, marginTop: 1 }} />
             {lang === "khortha" || lang === "kht"
-              ? "जमा करते ही एआई अपने आप श्रेणी सुझावत।"
+              ? "जमा करते ही समस्या सरकारी समीक्षा हेतु अग्रेषित हो जाई और एआई श्रेणी सुझावत।"
               : lang === "hi"
-              ? "जमा करते ही एआई स्वतः श्रेणी सुझाएगा।"
-              : "The AI will automatically suggest a category as soon as you submit."}
+              ? "जमा करते ही समस्या सरकारी समीक्षा हेतु अग्रेषित हो जाएगी और एआई स्वतः श्रेणी सुझाएगा।"
+              : "Upon submission, your issue is immediately routed to the Government Official review queue."}
           </div>
         </div>
 
@@ -437,10 +570,19 @@ export default function CitizenDash({ tab, lang, t, onOpen, refreshKey, bumpRefr
         <CameraCaptureModal
           isOpen={showCameraModal}
           onClose={() => setShowCameraModal(false)}
-          onCapture={(dataUrl, name) => {
-            setPhotoUrl(dataUrl);
-            setPhotoName(name);
-            setError("");
+          onCapture={async (dataUrl, name) => {
+            setOptimizingImage(true);
+            try {
+              const compressed = await compressImage(dataUrl, 1280, 1280, 0.80);
+              setPhotoUrl(compressed);
+              setPhotoName(name);
+              setError("");
+            } catch {
+              setPhotoUrl(dataUrl);
+              setPhotoName(name);
+            } finally {
+              setOptimizingImage(false);
+            }
           }}
           onFallbackUpload={() => galleryInputRef.current?.click()}
           lang={lang}

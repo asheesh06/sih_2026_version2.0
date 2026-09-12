@@ -122,8 +122,16 @@ export function CameraCaptureModal({ isOpen, onClose, onCapture, onFallbackUploa
   function handleCapture() {
     if (!videoRef.current) return;
     const video = videoRef.current;
-    const width = video.videoWidth || 640;
-    const height = video.videoHeight || 480;
+    let width = video.videoWidth || 640;
+    let height = video.videoHeight || 480;
+
+    // Scale down if camera feed exceeds 1280px in either dimension
+    const maxDim = 1280;
+    if (width > maxDim || height > maxDim) {
+      const ratio = Math.min(maxDim / width, maxDim / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
 
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -137,7 +145,7 @@ export function CameraCaptureModal({ isOpen, onClose, onCapture, onFallbackUploa
     }
 
     ctx.drawImage(video, 0, 0, width, height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.90);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.80);
     setCapturedImage(dataUrl);
     stopStream();
   }

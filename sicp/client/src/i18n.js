@@ -4,9 +4,9 @@ export const LANGUAGES = [
   { code: "khortha", label: "Khortha", native: "खोरठा", flag: "🌾" },
 ];
 
-export const STEP_LABELS_EN = ["Submitted", "Govt. Reviewed", "University Assigned", "Industry Matched", "Budget Approved", "Completed"];
-export const STEP_LABELS_HI = ["जमा किया गया", "सरकार द्वारा समीक्षित", "विश्वविद्यालय नियुक्त", "उद्योग साझेदार मिला", "बजट स्वीकृत", "पूर्ण"];
-export const STEP_LABELS_KHT = ["दरज भेल", "सरकार देखलथ", "विश्वविद्यालय सउंपल", "उद्योग संगी जोड़ाएल", "बजट मंजूर भेल", "काम पूरा भेल"];
+export const STEP_LABELS_EN = ["Citizen Report", "Govt. Assigned", "University Solution", "Tender Selection", "Ground Work", "Completed"];
+export const STEP_LABELS_HI = ["नागरिक रिपोर्ट", "सरकारी आवंटन", "विश्वविद्यालय समाधान", "निविदा चयन", "जमीनी काम शुरू", "पूर्ण"];
+export const STEP_LABELS_KHT = ["नागरिक दरज", "सरकार सउंपल", "विश्वविद्यालय समाधान", "टेंडर चुनाव", "जमीनी काम चालू", "पूरा भेल"];
 
 export function getStepLabels(lang = "en") {
   if (lang === "khortha" || lang === "kht") return STEP_LABELS_KHT;
@@ -121,17 +121,31 @@ export const T = {
     runAI: "Preview AI categorisation", aiSuggested: "AI-suggested category", confidence: "confidence",
     submit: "Submit report", cancel: "Cancel",
     statusPending: "Waiting for government review", statusRejected: "Not approved",
-    statusRouted: "Assigned to university", statusTeam: "Team formed, seeking industry partner",
-    statusIndReq: "Looking for an industry partner", statusBudget: "Budget under government review",
-    statusBudgetRej: "Budget sent back for revision", statusProgress: "Ground work in progress",
+    statusRouted: "Assigned to university", statusTeam: "Solution submitted · Open for tenders",
+    statusIndReq: "Solution Submitted · Open for Industry Tenders", statusBudget: "Tenders Received · Govt. Selection",
+    statusBudgetRej: "Tenders sent back for revision", statusProgress: "Tender Awarded · Ground Work in Progress",
     statusDone: "Completed",
     approve: "Approve & Route", reject: "Reject", assignTo: "Assign to university",
     reason: "Reason (shown to citizen)",
-    acceptTeam: "Accept & form team", mentor: "Faculty mentor name", students: "Student team members",
-    proposalSummary: "Short solution proposal", requestIndustry: "Request an industry partner",
-    matchedIndustry: "Matching industry partners", submitProposal: "Submit execution proposal",
+    acceptTeam: "Submit Solution & Forward to Registered Industries", mentor: "Faculty mentor name", students: "Student team members",
+    proposalSummary: "Technical solution & execution blueprint", requestIndustry: "Open for industry tenders",
+    matchedIndustry: "Registered industry partners", submitProposal: "Submit industry tender",
+    submitTenderBtn: "Send Tender to Government",
+    selectTenderBtn: "Select & Award Tender",
+    tenderBudget: "Quoted tender budget (₹)",
+    tenderTimeline: "Execution timeline",
+    tenderResources: "Equipment, machinery & workforce",
+    tenderNotes: "Technical execution remarks",
+    tenderListTitle: "Competitive Tenders from Registered Industries",
+    noTendersYet: "No tenders submitted yet by registered industries.",
+    tendersCountBadge: "Tenders Submitted",
+    selectedTenderBadge: "Selected / Awarded",
+    competingTenderBadge: "Bid Submitted",
+    nav_budget: "Tender Selection",
+    nav_requests: "Open Tenders",
+    nav_proposals: "Our Submitted Tenders",
     timeline: "Proposed timeline", resources: "Resources required", budget: "Budget requested (₹)",
-    govtBudgetReview: "Government budget review", approveBudget: "Approve budget & start ground work",
+    govtBudgetReview: "Government tender selection & review", approveBudget: "Award tender & start ground work",
     rejectBudget: "Send back for revision", resubmitBtn: "Request a revised industry proposal",
     groundwork: "Ground work progress", updateProgress: "Update progress",
     markComplete: "Mark as completed", impactForm: "Record the impact created",

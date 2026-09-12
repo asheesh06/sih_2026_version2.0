@@ -18,8 +18,8 @@ async function startServer() {
       credentials: true,
     })
   );
-  app.use(express.json({ limit: "20mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
   // OAuth Popup Callback Handler (AI Studio iframe postMessage bridge)
   app.get(["/auth/callback", "/auth/callback/"], (req, res) => {
