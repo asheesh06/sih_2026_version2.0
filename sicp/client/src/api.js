@@ -60,7 +60,15 @@ export const api = {
   },
   getProblem: (id) => request(`/problems/${id}`),
   publicImpact: () => request("/problems/public/impact"),
+  publicFeed: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/problems/public/feed${qs ? "?" + qs : ""}`);
+  },
+  publicProblem: (id) => request(`/problems/public/problems/${id}`),
   organisations: () => request("/problems/organisations"),
+  lgdDirectory: () => request("/problems/lgd/directory"),
+  lgdConfig: () => request("/problems/lgd/config"),
+  resolveLgd: (payload) => request("/problems/lgd/resolve", { method: "POST", body: payload }),
   submitProblem: (payload) => request("/problems", { method: "POST", body: payload }),
 
   approve: (id, university) => request(`/problems/${id}/approve`, { method: "POST", body: { university } }),

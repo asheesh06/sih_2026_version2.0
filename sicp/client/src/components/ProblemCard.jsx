@@ -27,6 +27,36 @@ export default function ProblemCard({ p, lang, t, onOpen }) {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
             <Badge tone="neutral">{getCategoryLabel(p.category, lang)}</Badge>
             <Badge tone={statusTone}>{statusLabel}</Badge>
+            {p.district_name && (
+              <span
+                style={{
+                  fontSize: 11,
+                  background: "#eaf3ea",
+                  color: COLORS.forestDark,
+                  padding: "2px 7px",
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  border: "1px solid #c8dec8",
+                }}
+              >
+                📍 LGD: {p.district_name} ({p.district_code || "328"}) {p.subdistrict_name ? `· ${p.subdistrict_name}` : ""}
+              </span>
+            )}
+            {p.assigned_authority_name && (
+              <span
+                style={{
+                  fontSize: 11,
+                  background: "#f0f4f9",
+                  color: "#1a73e8",
+                  padding: "2px 7px",
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  border: "1px solid #d2e3fc",
+                }}
+              >
+                🏛️ {p.assigned_authority_designation || p.assigned_authority_name}
+              </span>
+            )}
           </div>
           <div style={{ fontSize: 12, color: COLORS.ink, display: "flex", alignItems: "center", gap: 4 }}>
             <MapPin size={12} /> {p.location}

@@ -34,10 +34,32 @@ function GoogleIcon() {
   );
 }
 
-export default function Login({ lang, setLang, t, onAuthed }) {
-  const [role, setRole] = useState("citizen");
-  const [mode, setMode] = useState("login"); // login | register
-  const [showEmailForm, setShowEmailForm] = useState(false);
+export default function Login({
+  lang,
+  setLang,
+  t,
+  onAuthed,
+  initialRole = "citizen",
+  initialMode = "login",
+  bannerNotice = null,
+  onClose = null,
+  isModal = false,
+  targetAction = null,
+}) {
+  const [role, setRole] = useState(initialRole || "citizen");
+  const [mode, setMode] = useState(initialMode || "login"); // login | register
+  const [showEmailForm, setShowEmailForm] = useState(initialMode === "register");
+
+  useEffect(() => {
+    if (initialRole) setRole(initialRole);
+  }, [initialRole]);
+
+  useEffect(() => {
+    if (initialMode) {
+      setMode(initialMode);
+      if (initialMode === "register") setShowEmailForm(true);
+    }
+  }, [initialMode]);
 
   // Email / Password credentials
   const [name, setName] = useState("");
@@ -93,12 +115,13 @@ export default function Login({ lang, setLang, t, onAuthed }) {
     setError(""); setBusy(true);
     try {
       let resp;
-      if (mode === "login") {
-        resp = await api.login({ email, password });
+      if (mode === "login" || role === "government") {
+        // Send both username and email so the backend can authenticate with either
+        resp = await api.login({ email, username: email, password });
       } else {
         resp = await api.register({ name, email, password, role, org_name: orgName || undefined });
       }
-      onAuthed(resp.token, resp.user);
+      onAuthed(resp.token, resp.user, targetAction);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -107,6 +130,53 @@ export default function Login({ lang, setLang, t, onAuthed }) {
   }
 
   const [authNotice, setAuthNotice] = useState(null);
+
+  // Quick fill demo credentials for Government officials
+  function setGovernmentAccount(accUsername, accPassword = "password123") {
+    setEmail(accUsername);
+    setPassword(accPassword);
+    setError("");
+  }
+
+  // Predefined Government Official Directory Accounts for easy test access
+  const govDirectoryAccounts = [
+    {
+      title: "Ranchi District (DIO)",
+      username: "officer.ranchi",
+      roleDesc: "District Level · LGD 328",
+      name: "Sri Arvind Kumar, IAS",
+    },
+    {
+      title: "Kanke Block (BDO)",
+      username: "bdo.kanke",
+      roleDesc: "Block Level · LGD 02340 (Ranchi)",
+      name: "Smt. Priyanka Soren, JPSC",
+    },
+    {
+      title: "Basia Block (BDO)",
+      username: "bdo.basia",
+      roleDesc: "Block Level · LGD 02360 (Gumla)",
+      name: "Sri Manoj Tirkey",
+    },
+    {
+      title: "Dhanbad District (DDC)",
+      username: "officer.dhanbad",
+      roleDesc: "District Level · LGD 325",
+      name: "Sri Rajeshwar Singh",
+    },
+    {
+      title: "State Directorate",
+      username: "director.state",
+      roleDesc: "Statewide Level · LGD 20",
+      name: "State Nodal Innovation Officer",
+    },
+    {
+      title: "Central / National Authority",
+      username: "officer.national",
+      roleDesc: "National / Multi-State Oversight",
+      name: "Central Grievance & Innovation Desk",
+    },
+  ];
 
   // Google Login and Signup trigger
   async function handleGoogleAuthClick() {
@@ -123,7 +193,7 @@ export default function Login({ lang, setLang, t, onAuthed }) {
           role: role || "citizen",
           org_name: (role === "university" || role === "industry" || role === "government") ? orgName : undefined,
         });
-        onAuthed(resp.token, resp.user);
+        onAuthed(resp.token, resp.user, targetAction);
         return;
       } catch (err) {
         console.error("Firebase Google Auth error:", err);
@@ -177,12 +247,705 @@ export default function Login({ lang, setLang, t, onAuthed }) {
         org_name: (role === "university" || role === "industry" || role === "government") ? orgName : undefined,
       });
       setShowGoogleChooser(false);
-      onAuthed(resp.token, resp.user);
+      onAuthed(resp.token, resp.user, targetAction);
     } catch (e) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  const renderCardContent = () => (
+    <div
+      style={{
+        background: "#fff",
+        borderRadius: 16,
+        boxShadow: isModal ? "0 20px 50px rgba(15,35,28,0.25)" : "0 10px 30px rgba(20,30,20,.12)",
+        padding: isModal ? "28px 24px 32px" : "32px 32px 36px",
+        border: `1px solid ${COLORS.line}`,
+        position: "relative",
+      }}
+    >
+      {onClose && (
+        <button
+          onClick={onClose}
+          type="button"
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            width: 34,
+            height: 34,
+            borderRadius: 8,
+            border: `1px solid ${COLORS.line}`,
+            background: COLORS.plaster,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            color: COLORS.charcoal,
+            zIndex: 20,
+          }}
+        >
+          <X size={18} />
+        </button>
+      )}
+
+      {bannerNotice && (
+        <div
+          style={{
+            background: "#f0f6f2",
+            border: `1.5px solid ${COLORS.forest}`,
+            borderRadius: 12,
+            padding: "13px 16px",
+            marginBottom: 20,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: "50%",
+              background: COLORS.forest,
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              marginTop: 1,
+            }}
+          >
+            <Info size={15} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, color: COLORS.forestDark, marginBottom: 2 }}>
+              {typeof bannerNotice === "object" ? bannerNotice.title : "Action Required"}
+            </div>
+            <div style={{ fontSize: 12.5, color: COLORS.charcoal, lineHeight: 1.45 }}>
+              {typeof bannerNotice === "object" ? bannerNotice.text : bannerNotice}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginBottom: 20, textAlign: "center", paddingRight: onClose ? 24 : 0 }}>
+        <h2 style={{ fontFamily: "'Poppins',sans-serif", color: COLORS.charcoal, fontSize: isModal ? 20 : 22, fontWeight: 700, margin: 0 }}>
+          {t.chooseRole}
+        </h2>
+        <p style={{ color: COLORS.ink, fontSize: 13, margin: "6px auto 0", maxWidth: 520 }}>
+          {t.selectRolePrompt}
+        </p>
+      </div>
+
+      {/* Role selector */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 24 }}>
+            {roles.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() => { setRole(r.key); setOrgName(""); setError(""); }}
+                style={{
+                  textAlign: "center",
+                  padding: "18px 16px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  border: `2px solid ${role === r.key ? COLORS.forest : COLORS.line}`,
+                  background: role === r.key ? "#eef4ee" : "#fff",
+                  transition: "all 0.15s ease",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ width: 44, height: 44, borderRadius: 10, background: COLORS.plaster, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                  <r.icon size={22} color={COLORS.forest} />
+                </div>
+                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 15.5, color: COLORS.charcoal, textAlign: "center" }}>{r.label}</div>
+                <div style={{ fontSize: 12.5, color: COLORS.ink, marginTop: 3, lineHeight: 1.4, textAlign: "center" }}>{r.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          {role && (
+            <div style={{ borderTop: `1px dashed ${COLORS.line}`, paddingTop: 26, maxWidth: 480, margin: "0 auto" }}>
+              
+              {/* Selected Role Tag */}
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <span style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 14px",
+                  borderRadius: 20,
+                  background: "#eef4ee",
+                  border: `1px solid ${COLORS.forest}`,
+                  color: COLORS.forest,
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}>
+                  {t.selectedRole} {t[role] || role}
+                </span>
+              </div>
+              
+              {/* Optional Org specification for university */}
+              {role === "university" && (
+                <div style={{ marginBottom: 18 }}>
+                  <Field label={t.selectUniversity}>
+                    <select style={inputStyle} value={orgName} onChange={(e) => setOrgName(e.target.value)}>
+                      <option value="">— {t.chooseFromRegistry} —</option>
+                      {orgs.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              )}
+
+              {/* GOVERNMENT OFFICIAL PORTAL LOGIN (Strictly Username/Password only - No Google sign-up/login) */}
+              {role === "government" ? (
+                <div>
+                  <div
+                    style={{
+                      background: "#f0f4f0",
+                      border: `1.5px solid ${COLORS.forest}`,
+                      borderRadius: 12,
+                      padding: "16px 18px",
+                      marginBottom: 20,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 8,
+                          background: COLORS.forest,
+                          color: "#fff",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Landmark size={18} />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 14.5, color: COLORS.forestDark }}>
+                          {t.govtOfficialLoginTitle || "Government Official Portal (LGD Integrated)"}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: COLORS.ink }}>
+                          Secured via Local Government Directory (LGD) Jurisdiction
+                        </div>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: 12.5, color: COLORS.charcoal, margin: 0, lineHeight: 1.5 }}>
+                      {t.govtNoSignupNote ||
+                        "Government Official accounts are administered via Central Administration Directory with designated LGD jurisdiction codes (State, District, Block, Village). Self-registration and Google Sign-In are restricted for official security."}
+                    </p>
+                  </div>
+
+                  {/* Official Credentials Form */}
+                  <div
+                    style={{
+                      background: "#fff",
+                      border: `1.5px solid ${COLORS.line}`,
+                      borderRadius: 12,
+                      padding: "20px 22px",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                      marginBottom: 16,
+                    }}
+                  >
+                    <Field label={t.officerIdentifier || "Officer Username or Official Email"}>
+                      <input
+                        style={inputStyle}
+                        placeholder="e.g. officer.ranchi or bdo.kanke"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="username"
+                      />
+                    </Field>
+
+                    <Field label={t.officerPassword || "Official Password"}>
+                      <input
+                        type="password"
+                        style={inputStyle}
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                      />
+                    </Field>
+
+                    <div style={{ marginTop: 18 }}>
+                      <Btn
+                        icon={Lock}
+                        disabled={busy || !email || !password}
+                        onClick={submitEmailAuth}
+                        style={{ width: "100%", justifyContent: "center", padding: "12px 20px" }}
+                      >
+                        {busy
+                          ? (lang === "hi" ? "सत्यापित हो रहा है..." : "Verifying Credentials...")
+                          : (lang === "hi" ? "सरकारी अधिकारी के रूप में लॉगिन करें" : "Log In as Government Official")}
+                      </Btn>
+                    </div>
+                  </div>
+
+                  {/* Pre-provisioned LGD Official Directory Test Accounts */}
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.charcoal, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>🔑 Quick Test Directory Accounts (Click to auto-fill):</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 7 }}>
+                      {govDirectoryAccounts.map((acc) => (
+                        <button
+                          key={acc.username}
+                          type="button"
+                          onClick={() => setGovernmentAccount(acc.username, "password123")}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "9px 12px",
+                            borderRadius: 8,
+                            background: email === acc.username ? "#eef7ee" : COLORS.cream,
+                            border: `1px solid ${email === acc.username ? COLORS.forest : COLORS.line}`,
+                            cursor: "pointer",
+                            textAlign: "left",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 12.5, color: COLORS.charcoal }}>
+                              {acc.title}: <code style={{ color: COLORS.forest, fontWeight: 800 }}>{acc.username}</code>
+                            </div>
+                            <div style={{ fontSize: 11, color: COLORS.ink, marginTop: 1 }}>
+                              {acc.name} · {acc.roleDesc}
+                            </div>
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              background: "#fff",
+                              border: `1px solid ${COLORS.line}`,
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              fontWeight: 600,
+                              color: COLORS.forest,
+                            }}
+                          >
+                            Fill pw: password123
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* CITIZEN, UNIVERSITY, INDUSTRY: Standard Google Auth & Email Option */
+                <div>
+                  {/* PRIMARY ACTION: Continue with Google */}
+                  <div style={{ marginBottom: 20 }}>
+                    <button
+                      type="button"
+                      onClick={handleGoogleAuthClick}
+                      disabled={busy}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 12,
+                        padding: "13px 20px",
+                        borderRadius: 12,
+                        background: "#fff",
+                        border: `1.5px solid #dadce0`,
+                        color: "#3c4043",
+                        fontWeight: 600,
+                        fontSize: 15,
+                        cursor: "pointer",
+                        boxShadow: "0 2px 5px rgba(60,64,67,.15)",
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = "0 3px 8px rgba(60,64,67,.25)";
+                        e.currentTarget.style.background = "#f8f9fa";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = "0 2px 5px rgba(60,64,67,.15)";
+                        e.currentTarget.style.background = "#fff";
+                      }}
+                    >
+                      <GoogleIcon />
+                      <span>
+                        {t.continueWithGoogleAs} {t[role] || role}
+                      </span>
+                    </button>
+
+                    <div style={{ textAlign: "center", marginTop: 8, fontSize: 12, color: COLORS.ink }}>
+                      {t.instantGoogleTag}
+                    </div>
+                  </div>
+
+                  {/* Actionable notice when Google popup encounters domain / browser restrictions */}
+                  {authNotice && (
+                    <div
+                      style={{
+                        background: "#fef7e0",
+                        border: "1px solid #f9ab00",
+                        borderRadius: 10,
+                        padding: "14px 16px",
+                        marginBottom: 16,
+                        fontSize: 12.5,
+                        color: "#5f4300",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Info size={16} color="#d97706" /> {authNotice.title}
+                      </div>
+                      <div style={{ marginBottom: 6 }}>{authNotice.message}</div>
+                      <div style={{ background: "#fff", padding: "8px 10px", borderRadius: 6, border: "1px solid #fde68a", fontWeight: 600, color: COLORS.charcoal, marginBottom: 8, wordBreak: "break-all" }}>
+                        {authNotice.action}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowGoogleChooser(true)}
+                          style={{
+                            background: COLORS.forest,
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: 6,
+                            padding: "6px 12px",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Bypass & select test account
+                        </button>
+                        <a
+                          href={typeof window !== "undefined" ? window.location.href : "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            background: "#fff",
+                            color: COLORS.forest,
+                            border: `1px solid ${COLORS.forest}`,
+                            borderRadius: 6,
+                            padding: "6px 12px",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            textDecoration: "none",
+                            display: "inline-block",
+                          }}
+                        >
+                          Open in new tab
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Toggle alternative email / password login */}
+                  <div style={{ textAlign: "center", marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailForm(!showEmailForm)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: 13,
+                        color: COLORS.forest,
+                        fontWeight: 600,
+                        textDecoration: "underline",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <Mail size={15} />
+                      <span>{showEmailForm ? "Hide email / password options" : "Or use email & password / credentials"}</span>
+                    </button>
+                  </div>
+
+                  {/* Email / Password Form (Alternative for Citizen, University, Industry) */}
+                  {showEmailForm && (
+                    <div style={{
+                      marginTop: 18,
+                      padding: "18px 20px",
+                      background: COLORS.cream,
+                      borderRadius: 12,
+                      border: `1px solid ${COLORS.line}`,
+                    }}>
+                      <div style={{ display: "flex", gap: 14, marginBottom: 14, borderBottom: `1px solid ${COLORS.line}`, paddingBottom: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => { setMode("login"); setError(""); }}
+                          style={{
+                            background: "none",
+                            borderTop: "none",
+                            borderLeft: "none",
+                            borderRight: "none",
+                            borderBottomWidth: 2,
+                            borderBottomStyle: "solid",
+                            borderBottomColor: mode === "login" ? COLORS.forest : "transparent",
+                            cursor: "pointer",
+                            color: mode === "login" ? COLORS.forest : COLORS.ink,
+                            fontWeight: 700,
+                            paddingBottom: 4,
+                          }}
+                        >
+                          {t.login}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setMode("register"); setError(""); }}
+                          style={{
+                            background: "none",
+                            borderTop: "none",
+                            borderLeft: "none",
+                            borderRight: "none",
+                            borderBottomWidth: 2,
+                            borderBottomStyle: "solid",
+                            borderBottomColor: mode === "register" ? COLORS.forest : "transparent",
+                            cursor: "pointer",
+                            color: mode === "register" ? COLORS.forest : COLORS.ink,
+                            paddingBottom: 4,
+                          }}
+                        >
+                          {t.registerBtn}
+                        </button>
+                      </div>
+
+                      {mode === "register" && (
+                        <Field label={t.yourName}>
+                          <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} />
+                        </Field>
+                      )}
+                      <Field label={t.email}>
+                        <input type="email" style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} />
+                      </Field>
+                      <Field label={t.password}>
+                        <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} />
+                      </Field>
+
+                      <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
+                        <Btn
+                          icon={ChevronRight}
+                          disabled={busy || !email || !password || (mode === "register" && !name)}
+                          onClick={submitEmailAuth}
+                          style={{ width: "100%", justifyContent: "center" }}
+                        >
+                          {busy ? "Authenticating..." : (mode === "login" ? t.login : t.registerBtn)}
+                        </Btn>
+                      </div>
+
+                      {mode === "login" && (
+                        <div style={{ marginTop: 12, fontSize: 11.5, color: COLORS.ink, textAlign: "center" }}>
+                          Demo accounts: <code>citizen@demo.gov.in</code>, <code>university@demo.gov.in</code> (pw: <code>password123</code>)
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+          )}
+        </div>
+      );
+
+  const renderGoogleChooserModal = () => (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(20,25,20,.6)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+      onClick={() => setShowGoogleChooser(false)}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 16,
+          padding: "24px 28px",
+          width: 440,
+          maxWidth: "94vw",
+          boxShadow: "0 20px 40px rgba(0,0,0,0.24)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <GoogleIcon />
+            <h3 style={{ fontFamily: "'Poppins',sans-serif", margin: 0, fontSize: 18, color: COLORS.charcoal }}>
+              {t.googleAccountChooser || "Select Google Account"}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowGoogleChooser(false)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.ink, padding: 4 }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <p style={{ fontSize: 13, color: COLORS.ink, lineHeight: 1.5, marginTop: 0, marginBottom: 18 }}>
+          {lang === "khortha" || lang === "kht"
+            ? `पोर्टल पर ${t[role] || role} के रूप में साइन इन चाहे खाता बनावे खातिर अपन गूगल खाता चुना:`
+            : lang === "hi"
+            ? `पोर्टल पर ${t[role] || role} के रूप में साइन इन या पंजीकृत होने के लिए अपना गूगल खाता चुनें:`
+            : `Select a verified Google account to sign in or register as ${t[role] || role}:`}
+        </p>
+
+        {/* List of system Google accounts */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+          {systemGoogleAccounts.map((acc) => (
+            <button
+              key={acc.email}
+              type="button"
+              disabled={busy}
+              onClick={() => selectGoogleAccount(acc.email, acc.name)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: `1.5px solid ${COLORS.line}`,
+                background: "#fff",
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = COLORS.plaster)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+            >
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  background: acc.bgColor,
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                {acc.avatarLetter}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontWeight: 600, fontSize: 14, color: COLORS.charcoal }}>{acc.name}</span>
+                  {acc.tag && (
+                    <span style={{ fontSize: 10.5, background: "#e8f0fe", color: "#1a73e8", padding: "1px 6px", borderRadius: 10, fontWeight: 600 }}>
+                      {acc.tag}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12.5, color: COLORS.ink, textOverflow: "ellipsis", overflow: "hidden" }}>
+                  {acc.email}
+                </div>
+              </div>
+              <ArrowRight size={16} color={COLORS.ink} />
+            </button>
+          ))}
+        </div>
+
+        {/* Toggle custom account entry */}
+        {!showManualGoogleInput ? (
+          <button
+            type="button"
+            onClick={() => setShowManualGoogleInput(true)}
+            style={{
+              width: "100%",
+              background: "transparent",
+              border: `1px dashed ${COLORS.line}`,
+              borderRadius: 8,
+              padding: "10px",
+              fontSize: 13,
+              fontWeight: 600,
+              color: COLORS.forest,
+              cursor: "pointer",
+              textAlign: "center",
+              marginBottom: 10,
+            }}
+          >
+            + Use another Google account
+          </button>
+        ) : (
+          <div style={{ borderTop: `1px solid ${COLORS.line}`, paddingTop: 14, marginBottom: 14 }}>
+            <Field label="Google Email Address">
+              <input
+                type="email"
+                style={inputStyle}
+                placeholder="name@gmail.com"
+                value={customGoogleEmail}
+                onChange={(e) => setCustomGoogleEmail(e.target.value)}
+              />
+            </Field>
+            <Field label="Name (Optional)">
+              <input
+                type="text"
+                style={inputStyle}
+                placeholder="e.g. Rahul Sharma"
+                value={customGoogleName}
+                onChange={(e) => setCustomGoogleName(e.target.value)}
+              />
+            </Field>
+            <Btn
+              icon={ArrowRight}
+              disabled={busy || !customGoogleEmail || !customGoogleEmail.includes("@")}
+              onClick={() => selectGoogleAccount(customGoogleEmail, customGoogleName)}
+            >
+              Verify and Sign In
+            </Btn>
+          </div>
+        )}
+
+        {error && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 10 }}>{error}</div>}
+      </div>
+    </div>
+  );
+
+  if (isModal) {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 35, 28, 0.72)",
+          backdropFilter: "blur(4px)",
+          zIndex: 90,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "20px 14px",
+          overflowY: "auto",
+        }}
+        onClick={onClose}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{ width: "100%", maxWidth: 660, maxHeight: "92vh", overflowY: "auto" }}
+        >
+          {renderCardContent()}
+        </div>
+        {showGoogleChooser && renderGoogleChooserModal()}
+      </div>
+    );
   }
 
   return (
@@ -252,494 +1015,10 @@ export default function Login({ lang, setLang, t, onAuthed }) {
 
       {/* Main Login / Signup Card */}
       <div style={{ maxWidth: 880, margin: "-30px auto 0", padding: "0 20px 60px", position: "relative", zIndex: 10 }}>
-        <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 10px 30px rgba(20,30,20,.12)", padding: "32px 32px 36px", border: `1px solid ${COLORS.line}` }}>
-          
-          <div style={{ marginBottom: 24, textAlign: "center" }}>
-            <h2 style={{ fontFamily: "'Poppins',sans-serif", color: COLORS.charcoal, fontSize: 22, fontWeight: 700, margin: 0 }}>
-              {t.chooseRole}
-            </h2>
-            <p style={{ color: COLORS.ink, fontSize: 13.5, margin: "6px auto 0", maxWidth: 520 }}>
-              {t.selectRolePrompt}
-            </p>
-          </div>
-
-          {/* Role selector */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 24 }}>
-            {roles.map((r) => (
-              <button
-                key={r.key}
-                type="button"
-                onClick={() => { setRole(r.key); setOrgName(""); setError(""); }}
-                style={{
-                  textAlign: "center",
-                  padding: "18px 16px",
-                  borderRadius: 12,
-                  cursor: "pointer",
-                  border: `2px solid ${role === r.key ? COLORS.forest : COLORS.line}`,
-                  background: role === r.key ? "#eef4ee" : "#fff",
-                  transition: "all 0.15s ease",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ width: 44, height: 44, borderRadius: 10, background: COLORS.plaster, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
-                  <r.icon size={22} color={COLORS.forest} />
-                </div>
-                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 15.5, color: COLORS.charcoal, textAlign: "center" }}>{r.label}</div>
-                <div style={{ fontSize: 12.5, color: COLORS.ink, marginTop: 3, lineHeight: 1.4, textAlign: "center" }}>{r.desc}</div>
-              </button>
-            ))}
-          </div>
-
-          {role && (
-            <div style={{ borderTop: `1px dashed ${COLORS.line}`, paddingTop: 26, maxWidth: 480, margin: "0 auto" }}>
-              
-              {/* Selected Role Tag */}
-              <div style={{ textAlign: "center", marginBottom: 20 }}>
-                <span style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "6px 14px",
-                  borderRadius: 20,
-                  background: "#eef4ee",
-                  border: `1px solid ${COLORS.forest}`,
-                  color: COLORS.forest,
-                  fontSize: 13,
-                  fontWeight: 700,
-                }}>
-                  {t.selectedRole} {t[role] || role}
-                </span>
-              </div>
-              
-              {/* Optional Org specification for university */}
-              {role === "university" && (
-                <div style={{ marginBottom: 18 }}>
-                  <Field label={t.selectUniversity}>
-                    <select style={inputStyle} value={orgName} onChange={(e) => setOrgName(e.target.value)}>
-                      <option value="">— {t.chooseFromRegistry} —</option>
-                      {orgs.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
-                    </select>
-                  </Field>
-                </div>
-              )}
-
-              {role === "government" && (
-                <div style={{ marginBottom: 18 }}>
-                  <Field label={t.departmentName}>
-                    <input
-                      style={inputStyle}
-                      placeholder="e.g. Dept. of Higher & Technical Education"
-                      value={orgName}
-                      onChange={(e) => setOrgName(e.target.value)}
-                    />
-                  </Field>
-                </div>
-              )}
-
-              {/* PRIMARY ACTION: Continue with Google */}
-              <div style={{ marginBottom: 20 }}>
-                <button
-                  type="button"
-                  onClick={handleGoogleAuthClick}
-                  disabled={busy}
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 12,
-                    padding: "13px 20px",
-                    borderRadius: 12,
-                    background: "#fff",
-                    border: `1.5px solid #dadce0`,
-                    color: "#3c4043",
-                    fontWeight: 600,
-                    fontSize: 15,
-                    cursor: "pointer",
-                    boxShadow: "0 2px 5px rgba(60,64,67,.15)",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.boxShadow = "0 3px 8px rgba(60,64,67,.25)";
-                    e.currentTarget.style.background = "#f8f9fa";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.boxShadow = "0 2px 5px rgba(60,64,67,.15)";
-                    e.currentTarget.style.background = "#fff";
-                  }}
-                >
-                  <GoogleIcon />
-                  <span>
-                    {t.continueWithGoogleAs} {t[role] || role}
-                  </span>
-                </button>
-
-                <div style={{ textAlign: "center", marginTop: 8, fontSize: 12, color: COLORS.ink }}>
-                  {t.instantGoogleTag}
-                </div>
-              </div>
-
-              {/* Actionable notice when Google popup encounters domain / browser restrictions */}
-              {authNotice && (
-                <div
-                  style={{
-                    background: "#fef7e0",
-                    border: "1px solid #f9ab00",
-                    borderRadius: 10,
-                    padding: "14px 16px",
-                    marginBottom: 16,
-                    fontSize: 12.5,
-                    color: "#5f4300",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                    <Info size={16} color="#d97706" /> {authNotice.title}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>{authNotice.message}</div>
-                  <div style={{ background: "#fff", padding: "8px 10px", borderRadius: 6, border: "1px solid #fde68a", fontWeight: 600, color: COLORS.charcoal, marginBottom: 8, wordBreak: "break-all" }}>
-                    {authNotice.action}
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowGoogleChooser(true)}
-                      style={{
-                        background: COLORS.forest,
-                        color: "#fff",
-                        border: "none",
-                        borderRadius: 6,
-                        padding: "6px 12px",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Bypass & select test account
-                    </button>
-                    <a
-                      href={typeof window !== "undefined" ? window.location.href : "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        background: "#fff",
-                        color: COLORS.forest,
-                        border: `1px solid ${COLORS.forest}`,
-                        borderRadius: 6,
-                        padding: "6px 12px",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        textDecoration: "none",
-                        display: "inline-block",
-                      }}
-                    >
-                      Open in new tab
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div style={{ color: COLORS.danger, fontSize: 13, background: "#ffebee", padding: "10px 14px", borderRadius: 8, marginBottom: 14, textAlign: "left", lineHeight: 1.5, border: "1px solid #ffcdd2" }}>
-                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Connection Notice:</div>
-                  <div>{error}</div>
-                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #ef9a9a", fontSize: 12, color: COLORS.charcoal }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
-                      <span><strong>Target API:</strong> <code style={{ background: "#fff", padding: "2px 6px", borderRadius: 4 }}>{BASE}</code></span>
-                      <a
-                        href={`${BASE.startsWith("http") ? BASE : window.location.origin + BASE}/health`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          color: COLORS.forest,
-                          fontWeight: 700,
-                          textDecoration: "underline",
-                          cursor: "pointer"
-                        }}
-                      >
-                        Wake Up / Test API ↗
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Toggle alternative email / password login */}
-              <div style={{ textAlign: "center", marginTop: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowEmailForm(!showEmailForm)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: 13,
-                    color: COLORS.forest,
-                    fontWeight: 600,
-                    textDecoration: "underline",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <Mail size={15} />
-                  <span>{showEmailForm ? "Hide email / password options" : "Or use email & password / credentials"}</span>
-                </button>
-              </div>
-
-              {/* Email / Password Form (Alternative) */}
-              {showEmailForm && (
-                <div style={{
-                  marginTop: 18,
-                  padding: "18px 20px",
-                  background: COLORS.cream,
-                  borderRadius: 12,
-                  border: `1px solid ${COLORS.line}`,
-                }}>
-                  <div style={{ display: "flex", gap: 14, marginBottom: 14, borderBottom: `1px solid ${COLORS.line}`, paddingBottom: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => { setMode("login"); setError(""); }}
-                      style={{
-                        background: "none",
-                        borderTop: "none",
-                        borderLeft: "none",
-                        borderRight: "none",
-                        borderBottomWidth: 2,
-                        borderBottomStyle: "solid",
-                        borderBottomColor: mode === "login" ? COLORS.forest : "transparent",
-                        cursor: "pointer",
-                        color: mode === "login" ? COLORS.forest : COLORS.ink,
-                        fontWeight: 700,
-                        paddingBottom: 4,
-                      }}
-                    >
-                      {t.login}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setMode("register"); setError(""); }}
-                      style={{
-                        background: "none",
-                        borderTop: "none",
-                        borderLeft: "none",
-                        borderRight: "none",
-                        borderBottomWidth: 2,
-                        borderBottomStyle: "solid",
-                        borderBottomColor: mode === "register" ? COLORS.forest : "transparent",
-                        cursor: "pointer",
-                        color: mode === "register" ? COLORS.forest : COLORS.ink,
-                        paddingBottom: 4,
-                      }}
-                    >
-                      {t.registerBtn}
-                    </button>
-                  </div>
-
-                  {mode === "register" && (
-                    <Field label={t.yourName}>
-                      <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} />
-                    </Field>
-                  )}
-                  <Field label={t.email}>
-                    <input type="email" style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} />
-                  </Field>
-                  <Field label={t.password}>
-                    <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} />
-                  </Field>
-
-                  <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
-                    <Btn
-                      icon={ChevronRight}
-                      disabled={busy || !email || !password || (mode === "register" && !name)}
-                      onClick={submitEmailAuth}
-                      style={{ width: "100%", justifyContent: "center" }}
-                    >
-                      {busy ? "Authenticating..." : (mode === "login" ? t.login : t.registerBtn)}
-                    </Btn>
-                  </div>
-
-                  {mode === "login" && (
-                    <div style={{ marginTop: 12, fontSize: 11.5, color: COLORS.ink, textAlign: "center" }}>
-                      Demo accounts: <code>citizen@demo.gov.in</code>, <code>government@demo.gov.in</code> (pw: <code>demo1234</code>)
-                    </div>
-                  )}
-                </div>
-              )}
-
-            </div>
-          )}
-        </div>
+        {renderCardContent()}
       </div>
 
-      {/* Google System Account Chooser Modal (showing discovered Google IDs) */}
-      {showGoogleChooser && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(20,25,20,.6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 90,
-            padding: 16,
-          }}
-          onClick={() => setShowGoogleChooser(false)}
-        >
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 16,
-              padding: "24px 28px",
-              width: 440,
-              maxWidth: "94vw",
-              boxShadow: "0 20px 40px rgba(0,0,0,0.24)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <GoogleIcon />
-                <h3 style={{ fontFamily: "'Poppins',sans-serif", margin: 0, fontSize: 18, color: COLORS.charcoal }}>
-                  {t.googleAccountChooser || "Select Google Account"}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowGoogleChooser(false)}
-                style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.ink, padding: 4 }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <p style={{ fontSize: 13, color: COLORS.ink, lineHeight: 1.5, marginTop: 0, marginBottom: 18 }}>
-              {lang === "khortha" || lang === "kht"
-                ? `पोर्टल पर ${t[role] || role} के रूप में साइन इन चाहे खाता बनावे खातिर अपन गूगल खाता चुना:`
-                : lang === "hi"
-                ? `पोर्टल पर ${t[role] || role} के रूप में साइन इन या पंजीकृत होने के लिए अपना गूगल खाता चुनें:`
-                : `Select a verified Google account to sign in or register as ${t[role] || role}:`}
-            </p>
-
-            {/* List of system Google accounts */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-              {systemGoogleAccounts.map((acc) => (
-                <button
-                  key={acc.email}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => selectGoogleAccount(acc.email, acc.name)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "12px 14px",
-                    borderRadius: 10,
-                    border: `1.5px solid ${COLORS.line}`,
-                    background: "#fff",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = COLORS.plaster)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
-                >
-                  <div
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: "50%",
-                      background: acc.bgColor,
-                      color: "#fff",
-                      fontWeight: 700,
-                      fontSize: 16,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {acc.avatarLetter}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14, color: COLORS.charcoal }}>{acc.name}</span>
-                      {acc.tag && (
-                        <span style={{ fontSize: 10.5, background: "#e8f0fe", color: "#1a73e8", padding: "1px 6px", borderRadius: 10, fontWeight: 600 }}>
-                          {acc.tag}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 12.5, color: COLORS.ink, textOverflow: "ellipsis", overflow: "hidden" }}>
-                      {acc.email}
-                    </div>
-                  </div>
-                  <ArrowRight size={16} color={COLORS.ink} />
-                </button>
-              ))}
-            </div>
-
-            {/* Toggle custom account entry */}
-            {!showManualGoogleInput ? (
-              <button
-                type="button"
-                onClick={() => setShowManualGoogleInput(true)}
-                style={{
-                  width: "100%",
-                  background: "transparent",
-                  border: `1px dashed ${COLORS.line}`,
-                  borderRadius: 8,
-                  padding: "10px",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: COLORS.forest,
-                  cursor: "pointer",
-                  textAlign: "center",
-                  marginBottom: 10,
-                }}
-              >
-                + Use another Google account
-              </button>
-            ) : (
-              <div style={{ borderTop: `1px solid ${COLORS.line}`, paddingTop: 14, marginBottom: 14 }}>
-                <Field label="Google Email Address">
-                  <input
-                    type="email"
-                    style={inputStyle}
-                    placeholder="name@gmail.com"
-                    value={customGoogleEmail}
-                    onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                  />
-                </Field>
-                <Field label="Name (Optional)">
-                  <input
-                    type="text"
-                    style={inputStyle}
-                    placeholder="e.g. Rahul Sharma"
-                    value={customGoogleName}
-                    onChange={(e) => setCustomGoogleName(e.target.value)}
-                  />
-                </Field>
-                <Btn
-                  icon={ArrowRight}
-                  disabled={busy || !customGoogleEmail || !customGoogleEmail.includes("@")}
-                  onClick={() => selectGoogleAccount(customGoogleEmail, customGoogleName)}
-                >
-                  Verify and Sign In
-                </Btn>
-              </div>
-            )}
-
-            {error && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 10 }}>{error}</div>}
-          </div>
-        </div>
-      )}
+      {showGoogleChooser && renderGoogleChooserModal()}
     </div>
   );
 }

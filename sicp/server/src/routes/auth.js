@@ -21,6 +21,14 @@ router.post(
     }
     if (!ROLES.includes(role)) return res.status(400).json({ error: "Invalid role" });
 
+    // Restrict public registration for government officials
+    if (role === "government") {
+      return res.status(403).json({
+        error:
+          "Public registration is disabled for Government officials. Official accounts with LGD jurisdiction are administered through the Central Administration Directory.",
+      });
+    }
+
     let finalOrgName = org_name;
     if (role === "industry" && !finalOrgName) {
       finalOrgName = "Industry Partner";
@@ -43,7 +51,18 @@ router.post(
       org_name: finalOrgName || null,
     });
 
-    const token = jwt.sign({ id, role, name, org_name: finalOrgName || null }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign(
+      {
+        id,
+        role,
+        name,
+        org_name: finalOrgName || null,
+        jurisdiction_level: user.jurisdiction_level || null,
+        district_code: user.district_code || null,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
     res.status(201).json({ token, user: serializeUser(user) });
   })
 );
@@ -51,15 +70,33 @@ router.post(
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: "email and password are required" });
-
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-      return res.status(401).json({ error: "Invalid email or password" });
+    const { email, username, password } = req.body || {};
+    const identifier = (username || email || "").toLowerCase().trim();
+    if (!identifier || !password) {
+      return res.status(400).json({ error: "Username/Email and password are required" });
     }
+
+    // Support both username and email login
+    let user = await User.findOne({ username: identifier });
+    if (!user) {
+      user = await User.findOne({ email: identifier });
+    }
+
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ error: "Invalid username/email or password" });
+    }
+
     const token = jwt.sign(
-      { id: user._id, role: user.role, name: user.name, org_name: user.org_name },
+      {
+        id: user._id,
+        role: user.role,
+        name: user.name,
+        org_name: user.org_name,
+        username: user.username || null,
+        jurisdiction_level: user.jurisdiction_level || null,
+        district_code: user.district_code || null,
+        subdistrict_code: user.subdistrict_code || null,
+      },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -67,7 +104,7 @@ router.post(
   })
 );
 
-// Google Authentication endpoint (supports both login & signup)
+// Google Authentication endpoint (restricted for government officials)
 router.post(
   "/google",
   asyncHandler(async (req, res) => {
@@ -76,8 +113,23 @@ router.post(
       return res.status(400).json({ error: "Google email is required" });
     }
 
+    // Strictly remove/disable Google-based login or signup for Government officials
+    if (role === "government") {
+      return res.status(403).json({
+        error:
+          "Google authentication is strictly disabled for Government Officials. Please log in using official Username/Officer ID and Password.",
+      });
+    }
+
     const cleanEmail = email.toLowerCase().trim();
     let user = await User.findOne({ email: cleanEmail });
+
+    if (user && user.role === "government") {
+      return res.status(403).json({
+        error:
+          "This account is registered as a Government Official. Google Sign-In is disabled for Government accounts. Please use official Username/Password.",
+      });
+    }
 
     if (!user) {
       if (!ROLES.includes(role)) {
@@ -97,7 +149,13 @@ router.post(
     }
 
     const token = jwt.sign(
-      { id: user._id, role: user.role, name: user.name, org_name: user.org_name },
+      {
+        id: user._id,
+        role: user.role,
+        name: user.name,
+        org_name: user.org_name,
+        username: user.username || null,
+      },
       JWT_SECRET,
       { expiresIn: "7d" }
     );

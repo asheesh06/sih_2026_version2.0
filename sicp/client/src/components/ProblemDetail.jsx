@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   ArrowLeft, Volume2, MapPin, User, GraduationCap, Factory, CheckCircle2, XCircle,
-  Users, HeartHandshake, Wallet, TrendingUp, Award, Check, RefreshCw,
+  Users, HeartHandshake, Wallet, TrendingUp, Award, Check, RefreshCw, Landmark, ShieldCheck,
 } from "lucide-react";
 import { COLORS } from "../theme.js";
 import { Field, Btn, Badge, Stepper, inputStyle } from "./ui.jsx";
@@ -9,7 +9,7 @@ import { speak, getCategoryLabel } from "../i18n.js";
 import { useTranslatedText } from "../translate.js";
 import { api } from "../api.js";
 
-export default function ProblemDetail({ p, lang, t, role, orgs, onClose, onChanged }) {
+export default function ProblemDetail({ p, lang, t, role, orgs = [], onClose, onChanged, onRequestAuth }) {
   const { translated: translatedTitle } = useTranslatedText(p.title, lang);
   const { translated: translatedDesc } = useTranslatedText(p.description, lang);
   const [mentor, setMentor] = useState(p.mentor || "");
@@ -89,9 +89,72 @@ export default function ProblemDetail({ p, lang, t, role, orgs, onClose, onChang
             />
           </div>
         )}
-        <div style={{ fontSize: 12.5, color: COLORS.ink, display: "flex", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12.5, color: COLORS.ink, display: "flex", gap: 14, marginBottom: 12, flexWrap: "wrap" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={13} /> {p.location}</span>
+          {p.lat && p.lng && (
+            <span style={{ display: "flex", alignItems: "center", gap: 4, color: COLORS.forest, fontWeight: 600 }}>
+              📍 GPS: {Number(p.lat).toFixed(4)}° N, {Number(p.lng).toFixed(4)}° E
+            </span>
+          )}
         </div>
+
+        {/* LGD Directory & Authority Mapping Flow Card */}
+        {(p.district_code || p.assigned_authority_name || p.lgd_hierarchy_code) && (
+          <div
+            style={{
+              background: "#f7faf7",
+              border: `1.5px solid #cce3cc`,
+              borderRadius: 10,
+              padding: "12px 14px",
+              marginBottom: 16,
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontWeight: 800, color: COLORS.forestDark, display: "flex", alignItems: "center", gap: 6 }}>
+                <Landmark size={15} color={COLORS.forest} />
+                <span>LGD Directory & Authority Routing</span>
+              </div>
+              <span style={{ fontSize: 10.5, background: "#d5ebd5", color: COLORS.forestDark, padding: "2px 7px", borderRadius: 4, fontWeight: 700 }}>
+                {p.lgd_hierarchy_code || `LGD-20-${p.district_code || "328"}`}
+              </span>
+            </div>
+
+            <div style={{ background: "#fff", padding: "8px 10px", borderRadius: 6, border: `1px solid ${COLORS.line}`, marginBottom: 8, color: COLORS.charcoal, lineHeight: 1.5 }}>
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, fontSize: 11.5 }}>
+                <span style={{ fontWeight: 600 }}>State:</span> <b>{p.state_name || "Jharkhand"}</b> <code>[{p.state_code || "20"}]</code>
+                <span>→</span>
+                <span style={{ fontWeight: 600 }}>District:</span> <b>{p.district_name || "Ranchi"}</b> <code>[{p.district_code || "328"}]</code>
+                {p.subdistrict_name && (
+                  <>
+                    <span>→</span>
+                    <span style={{ fontWeight: 600 }}>Block:</span> <b>{p.subdistrict_name}</b> <code>[{p.subdistrict_code || "02341"}]</code>
+                  </>
+                )}
+                {p.village_name && (
+                  <>
+                    <span>→</span>
+                    <span style={{ fontWeight: 600 }}>Village:</span> <b>{p.village_name}</b> <code>[{p.village_code || "374001"}]</code>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 11.5, color: COLORS.forestDark }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <ShieldCheck size={14} color={COLORS.forest} />
+                <span>
+                  <b>Assigned Authority:</b> {p.assigned_authority_name || "District Innovation Officer"} ({p.assigned_authority_designation || "DIO"})
+                </span>
+              </div>
+              {p.assigned_authority_scope && (
+                <span style={{ background: COLORS.forest, color: "#fff", fontSize: 10, padding: "1px 6px", borderRadius: 4, fontWeight: 700, textTransform: "uppercase" }}>
+                  {p.assigned_authority_scope} Queue
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <div style={{ background: COLORS.cream, borderRadius: 10, padding: 14, marginBottom: 18, overflowX: "auto" }}>
           <Stepper status={p.status} lang={lang} />
@@ -206,6 +269,61 @@ export default function ProblemDetail({ p, lang, t, role, orgs, onClose, onChang
               </div>
               <div style={{ fontSize: 13, marginBottom: 6 }}><b>{t.beneficiaries}:</b> {p.beneficiaries}</div>
               <div style={{ fontSize: 13, lineHeight: 1.55 }}>{p.impact_summary}</div>
+            </div>
+          </div>
+        )}
+
+        {/* GUEST MODE: Prompt to sign in or register to take action */}
+        {(!role || role === "guest") && (
+          <div style={{ marginTop: 20, borderTop: `1px solid ${COLORS.line}`, paddingTop: 18 }}>
+            <div
+              style={{
+                background: COLORS.cream,
+                border: `1.5px solid ${COLORS.line}`,
+                borderRadius: 12,
+                padding: "16px 18px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Users size={18} color={COLORS.forest} />
+                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14, color: COLORS.forestDark }}>
+                  Join the Collaboration
+                </div>
+              </div>
+              <p style={{ fontSize: 12.5, color: COLORS.ink, margin: "0 0 14px", lineHeight: 1.5 }}>
+                Want to report an issue in your panchayat, develop an engineering solution, or track official administrative action?
+              </p>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Btn
+                  icon={User}
+                  onClick={() => {
+                    onClose();
+                    if (onRequestAuth) onRequestAuth("citizen", "register", "register_problem");
+                  }}
+                  style={{ fontSize: 12.5, padding: "8px 14px" }}
+                >
+                  Register a Problem
+                </Btn>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    if (onRequestAuth) onRequestAuth("citizen", "login");
+                  }}
+                  style={{
+                    background: "#fff",
+                    border: `1px solid ${COLORS.line}`,
+                    borderRadius: 8,
+                    padding: "8px 14px",
+                    color: COLORS.charcoal,
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Sign In
+                </button>
+              </div>
             </div>
           </div>
         )}

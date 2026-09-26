@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const userSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
+    username: { type: String, default: null, lowercase: true, trim: true },
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true },
     phone: { type: String, default: null },
@@ -13,6 +14,20 @@ const userSchema = new mongoose.Schema(
       enum: ["citizen", "university", "government", "industry"],
     },
     org_name: { type: String, default: null },
+    // Government Body LGD Jurisdiction Schema (State, District, Sub-District)
+    state_code: { type: String, default: "20" },
+    state_name: { type: String, default: "Jharkhand" },
+    district_code: { type: String, default: null },
+    district_name: { type: String, default: null },
+    subdistrict_code: { type: String, default: null }, // Block / Tehsil code
+    subdistrict_name: { type: String, default: null }, // Block / Tehsil name
+    jurisdiction_level: {
+      type: String,
+      enum: ["state", "district", "subdistrict", "block"],
+      default: "district",
+    },
+    designation: { type: String, default: null },
+    department: { type: String, default: null },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
@@ -68,6 +83,24 @@ const problemSchema = new mongoose.Schema(
     milestones: { type: [milestoneSchema], default: [] },
     tenders: { type: [tenderSchema], default: [] },
     selected_tender_id: { type: String, default: null },
+    // LGD Location Codes & Authority Mapping Engine
+    state_code: { type: String, default: "20" },
+    state_name: { type: String, default: "Jharkhand" },
+    district_code: { type: String, default: null },
+    district_name: { type: String, default: null },
+    subdistrict_code: { type: String, default: null }, // Block code
+    subdistrict_name: { type: String, default: null }, // Block name
+    panchayat_code: { type: String, default: null },
+    panchayat_name: { type: String, default: null },
+    village_code: { type: String, default: null },
+    village_name: { type: String, default: null },
+    lgd_hierarchy_code: { type: String, default: null },
+    assigned_authority_id: { type: String, default: null },
+    assigned_authority_name: { type: String, default: null },
+    assigned_authority_username: { type: String, default: null },
+    assigned_authority_designation: { type: String, default: null },
+    assigned_authority_department: { type: String, default: null },
+    assigned_authority_scope: { type: String, default: null },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
@@ -111,7 +144,12 @@ function loadLocalStore() {
       const parsed = JSON.parse(content);
       if (parsed) {
         if (Array.isArray(parsed.users) && parsed.users.length > 0) {
-          memoryStore.users = parsed.users;
+          memoryStore.users = parsed.users.map((u) => {
+            const clean = { ...u };
+            delete clean.village_code;
+            delete clean.village_name;
+            return clean;
+          });
         }
         if (Array.isArray(parsed.organisations) && parsed.organisations.length > 0) {
           memoryStore.organisations = parsed.organisations;
@@ -163,6 +201,23 @@ function createProblemDoc(item) {
     history: [...(item.history || [])],
     tenders: (item.tenders || []).map((t) => ({ ...t })),
     selected_tender_id: item.selected_tender_id || null,
+    state_code: item.state_code || "20",
+    state_name: item.state_name || "Jharkhand",
+    district_code: item.district_code || null,
+    district_name: item.district_name || null,
+    subdistrict_code: item.subdistrict_code || null,
+    subdistrict_name: item.subdistrict_name || null,
+    panchayat_code: item.panchayat_code || null,
+    panchayat_name: item.panchayat_name || null,
+    village_code: item.village_code || null,
+    village_name: item.village_name || null,
+    lgd_hierarchy_code: item.lgd_hierarchy_code || null,
+    assigned_authority_id: item.assigned_authority_id || null,
+    assigned_authority_name: item.assigned_authority_name || null,
+    assigned_authority_username: item.assigned_authority_username || null,
+    assigned_authority_designation: item.assigned_authority_designation || null,
+    assigned_authority_department: item.assigned_authority_department || null,
+    assigned_authority_scope: item.assigned_authority_scope || null,
   };
   doc.save = async function () {
     this.updated_at = new Date();
@@ -172,32 +227,81 @@ function createProblemDoc(item) {
   return doc;
 }
 
+function attachUserMethods(u) {
+  if (!u) return u;
+  if (!u.save) {
+    u.save = async function () {
+      this.updated_at = new Date();
+      persistLocalStore();
+      return this;
+    };
+  }
+  return u;
+}
+
 const User = {
+  find: (query) => {
+    if (isMongoConnected) return MongooseUser.find(query);
+    let list = memoryStore.users;
+    if (query && query.role) {
+      list = list.filter((u) => u.role === query.role);
+    }
+    return Promise.resolve(list.map(attachUserMethods));
+  },
   findOne: async (query) => {
     if (isMongoConnected) return MongooseUser.findOne(query);
-    if (query && query.email) {
-      return (
-        memoryStore.users.find(
-          (u) => u.email && u.email.toLowerCase() === query.email.toLowerCase()
-        ) || null
-      );
+    if (!query) return null;
+
+    // Check $or queries (common for username or email login)
+    if (Array.isArray(query.$or)) {
+      for (const cond of query.$or) {
+        if (cond.email) {
+          const match = memoryStore.users.find(
+            (u) => u.email && u.email.toLowerCase() === cond.email.toLowerCase()
+          );
+          if (match) return attachUserMethods(match);
+        }
+        if (cond.username) {
+          const match = memoryStore.users.find(
+            (u) => u.username && u.username.toLowerCase() === cond.username.toLowerCase()
+          );
+          if (match) return attachUserMethods(match);
+        }
+      }
     }
-    if (query && query.phone) {
-      return (
-        memoryStore.users.find(
-          (u) => u.phone && u.phone.trim() === query.phone.trim()
-        ) || null
+
+    if (query.username) {
+      const match = memoryStore.users.find(
+        (u) => u.username && u.username.toLowerCase() === query.username.toLowerCase()
       );
+      if (match) return attachUserMethods(match);
+    }
+    if (query.email) {
+      const match = memoryStore.users.find(
+        (u) => u.email && u.email.toLowerCase() === query.email.toLowerCase()
+      );
+      if (match) return attachUserMethods(match);
+    }
+    if (query.phone) {
+      const match = memoryStore.users.find(
+        (u) => u.phone && u.phone.trim() === query.phone.trim()
+      );
+      return attachUserMethods(match || null);
+    }
+    if (query._id) {
+      const match = memoryStore.users.find((u) => u._id === query._id);
+      return attachUserMethods(match || null);
     }
     return null;
   },
   findById: async (id) => {
     if (isMongoConnected) return MongooseUser.findById(id);
-    return memoryStore.users.find((u) => u._id === id) || null;
+    const match = memoryStore.users.find((u) => u._id === id);
+    return attachUserMethods(match || null);
   },
   create: async (data) => {
     if (isMongoConnected) return MongooseUser.create(data);
-    const doc = { ...data, created_at: new Date(), updated_at: new Date() };
+    const doc = attachUserMethods({ ...data, created_at: new Date(), updated_at: new Date() });
     memoryStore.users.push(doc);
     persistLocalStore();
     return doc;
@@ -294,11 +398,21 @@ function serializeUser(u) {
   const row = u.toObject ? u.toObject() : u;
   return {
     id: row._id,
+    username: row.username || null,
     name: row.name,
     email: row.email,
     phone: row.phone || null,
     role: row.role,
     org_name: row.org_name || null,
+    state_code: row.state_code || "20",
+    state_name: row.state_name || "Jharkhand",
+    district_code: row.district_code || null,
+    district_name: row.district_name || null,
+    subdistrict_code: row.subdistrict_code || null,
+    subdistrict_name: row.subdistrict_name || null,
+    jurisdiction_level: row.jurisdiction_level || (row.role === "government" ? "district" : null),
+    designation: row.designation || null,
+    department: row.department || null,
   };
 }
 
@@ -347,6 +461,24 @@ function serializeProblem(p) {
       created_at: t.created_at || null,
     })),
     selected_tender_id: row.selected_tender_id || null,
+    // LGD and Authority details
+    state_code: row.state_code || "20",
+    state_name: row.state_name || "Jharkhand",
+    district_code: row.district_code || null,
+    district_name: row.district_name || null,
+    subdistrict_code: row.subdistrict_code || null,
+    subdistrict_name: row.subdistrict_name || null,
+    panchayat_code: row.panchayat_code || null,
+    panchayat_name: row.panchayat_name || null,
+    village_code: row.village_code || null,
+    village_name: row.village_name || null,
+    lgd_hierarchy_code: row.lgd_hierarchy_code || null,
+    assigned_authority_id: row.assigned_authority_id || null,
+    assigned_authority_name: row.assigned_authority_name || null,
+    assigned_authority_username: row.assigned_authority_username || null,
+    assigned_authority_designation: row.assigned_authority_designation || null,
+    assigned_authority_department: row.assigned_authority_department || null,
+    assigned_authority_scope: row.assigned_authority_scope || null,
   };
 }
 
@@ -361,6 +493,7 @@ module.exports = {
   Problem,
   Organisation,
   setMongoConnected,
+  persistLocalStore,
   serializeUser,
   serializeProblem,
   serializeOrganisation,

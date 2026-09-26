@@ -6,6 +6,7 @@ import Shell from "./components/Shell.jsx";
 import Chatbot from "./components/Chatbot.jsx";
 import ProblemDetail from "./components/ProblemDetail.jsx";
 import Login from "./pages/Login.jsx";
+import GuestLayout from "./pages/GuestLayout.jsx";
 import CitizenDash from "./pages/CitizenDash.jsx";
 import GovernmentDash from "./pages/GovernmentDash.jsx";
 import UniversityDash from "./pages/UniversityDash.jsx";
@@ -41,12 +42,16 @@ export default function App() {
     if (user) api.organisations().then((d) => setOrgs(d.organisations)).catch(() => {});
   }, [user]);
 
-  function handleAuthed(token, u) {
+  function handleAuthed(token, u, targetAction) {
     setToken(token);
     sessionMemory = { token, user: u };
     setUser(u);
     const defaults = { citizen: "mine", government: "overview", university: "assigned", industry: "requests" };
-    setActiveTab(defaults[u.role]);
+    if (u.role === "citizen" && targetAction === "register_problem") {
+      setActiveTab("new");
+    } else {
+      setActiveTab(defaults[u.role]);
+    }
   }
 
   function handleLogout() {
@@ -69,7 +74,20 @@ export default function App() {
   }
 
   if (booting) return null;
-  if (!user) return <Login lang={lang} setLang={setLang} t={t} onAuthed={handleAuthed} />;
+  if (!user) {
+    return (
+      <>
+        <GuestLayout
+          lang={lang}
+          setLang={setLang}
+          t={t}
+          onAuthed={handleAuthed}
+          orgs={orgs}
+        />
+        <Chatbot lang={lang} t={t} />
+      </>
+    );
+  }
 
   const navByRole = {
     citizen: [
@@ -94,7 +112,7 @@ export default function App() {
 
   const dashByRole = {
     citizen: <CitizenDash tab={activeTab} setActiveTab={setActiveTab} lang={lang} t={t} onOpen={setOpenProblem} refreshKey={refreshKey} bumpRefresh={bumpRefresh} />,
-    government: <GovernmentDash tab={activeTab} lang={lang} t={t} onOpen={setOpenProblem} refreshKey={refreshKey} />,
+    government: <GovernmentDash tab={activeTab} lang={lang} t={t} user={user} onOpen={setOpenProblem} refreshKey={refreshKey} />,
     university: <UniversityDash tab={activeTab} lang={lang} t={t} user={user} onOpen={setOpenProblem} refreshKey={refreshKey} />,
     industry: <IndustryDash tab={activeTab} lang={lang} t={t} user={user} onOpen={setOpenProblem} refreshKey={refreshKey} />,
   };

@@ -1,8 +1,9 @@
 const express = require("express");
 const { nanoid } = require("nanoid");
-const { Problem, Organisation, serializeProblem, serializeOrganisation } = require("../models");
+const { Problem, Organisation, User, serializeProblem, serializeOrganisation } = require("../models");
 const { requireAuth, requireRole } = require("../authMiddleware");
 const { aiClassify } = require("../utils/aiClassify");
+const { resolveLgdLocation, mapAuthority, LGD_STATES, KNOWN_DISTRICTS } = require("../lgdService");
 const { asyncHandler } = require("../asyncHandler");
 
 const router = express.Router();
@@ -16,17 +17,72 @@ function addHistory(problem, note) {
   problem.history.push(note);
 }
 
+// ---- LGD Directory & Resolution Utilities ----
+router.get("/lgd/directory", (req, res) => {
+  res.json({ states: LGD_STATES, districts: KNOWN_DISTRICTS });
+});
+
+router.get("/lgd/config", (req, res) => {
+  const allowAllLocations = process.env.ALLOW_ALL_LOCATIONS !== "false";
+  res.json({
+    allow_all_locations: allowAllLocations,
+    default_state: "Jharkhand",
+    default_state_code: "20",
+  });
+});
+
+router.post(
+  "/lgd/resolve",
+  asyncHandler(async (req, res) => {
+    const { lat, lng, location, explicit } = req.body || {};
+    const lgd = resolveLgdLocation(lat, lng, location, explicit || {});
+    const officers = await User.find({ role: "government" });
+    const authority = mapAuthority(lgd, req.body.category || "General", officers);
+    res.json({ lgd, authority });
+  })
+);
+
 // ---- List & read ----
 router.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { status, mine } = req.query;
+    const { status, mine, jurisdiction, district_code, subdistrict_code, state_code } = req.query;
     let rows = await Problem.find().sort({ created_at: -1 });
 
     if (req.user.role === "citizen" && mine === "true") {
       rows = rows.filter((p) => p.citizen_id === req.user.id);
     }
+
+    // Government Authority Complaint Queue filtering (State, District, Sub-District)
+    if (req.user.role === "government") {
+      const officer = await User.findById(req.user.id);
+      const isMyArea = jurisdiction !== "all";
+
+      if (isMyArea && officer) {
+        if (officer.subdistrict_code) {
+          // Sub-District / Block level officer (e.g. BDO): exact match on state, district, and subdistrict
+          rows = rows.filter(
+            (p) =>
+              (!officer.state_code || p.state_code === officer.state_code) &&
+              p.district_code === officer.district_code &&
+              p.subdistrict_code === officer.subdistrict_code
+          );
+        } else if (officer.district_code) {
+          // District level officer (e.g. DIO / DDC): exact match on state and district
+          rows = rows.filter(
+            (p) =>
+              (!officer.state_code || p.state_code === officer.state_code) &&
+              p.district_code === officer.district_code
+          );
+        } else if (officer.state_code) {
+          // State level officer: matches state
+          rows = rows.filter((p) => p.state_code === officer.state_code);
+        }
+        // If officer has no state_code (e.g. National Coordinator), they monitor all areas
+      }
+    }
+
     if (req.user.role === "university") {
       rows = rows.filter(
         (p) => p.status === "university_assigned" || p.university === req.user.org_name
@@ -43,6 +99,13 @@ router.get(
         return false;
       });
     }
+
+    if (district_code) {
+      rows = rows.filter((p) => p.district_code === district_code);
+    }
+    if (subdistrict_code) {
+      rows = rows.filter((p) => p.subdistrict_code === subdistrict_code);
+    }
     if (status) rows = rows.filter((p) => p.status === status);
 
     res.json({ problems: rows.map(serializeProblem) });
@@ -54,6 +117,59 @@ router.get(
   asyncHandler(async (req, res) => {
     const rows = await Problem.find({ status: "completed" }).sort({ updated_at: -1 });
     res.json({ problems: rows.map(serializeProblem) });
+  })
+);
+
+router.get(
+  "/public/feed",
+  asyncHandler(async (req, res) => {
+    const { category, district_code, search, limit = 20 } = req.query;
+    let allRows = await Problem.find().sort({ created_at: -1 });
+
+    const stats = {
+      total: allRows.length,
+      resolved: allRows.filter((p) => p.status === "completed").length,
+      under_research: allRows.filter((p) =>
+        p.status === "university_assigned" ||
+        p.status === "team_formed" ||
+        p.status === "industry_requested"
+      ).length,
+      active_execution: allRows.filter((p) =>
+        p.status === "in_progress" ||
+        p.status === "budget_review"
+      ).length,
+    };
+
+    let filtered = allRows;
+    if (category && category !== "All") {
+      filtered = filtered.filter((p) => p.category === category);
+    }
+    if (district_code) {
+      filtered = filtered.filter((p) => p.district_code === district_code);
+    }
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      filtered = filtered.filter((p) =>
+        (p.title && p.title.toLowerCase().includes(q)) ||
+        (p.description && p.description.toLowerCase().includes(q)) ||
+        (p.location && p.location.toLowerCase().includes(q)) ||
+        (p.district_name && p.district_name.toLowerCase().includes(q))
+      );
+    }
+
+    const maxItems = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+    const problems = filtered.slice(0, maxItems).map(serializeProblem);
+
+    res.json({ problems, stats });
+  })
+);
+
+router.get(
+  "/public/problems/:id",
+  asyncHandler(async (req, res) => {
+    const p = await getFullProblem(req.params.id);
+    if (!p) return res.status(404).json({ error: "Problem not found" });
+    res.json({ problem: p });
   })
 );
 
@@ -81,16 +197,72 @@ router.post(
   requireAuth,
   requireRole("citizen"),
   asyncHandler(async (req, res) => {
-    const { title, description, location, photo_url } = req.body || {};
+    const {
+      title,
+      description,
+      location,
+      photo_url,
+      lat,
+      lng,
+      coords,
+      state_code,
+      district_code,
+      district_name,
+      subdistrict_code,
+      subdistrict_name,
+      village_code,
+      village_name,
+    } = req.body || {};
+
     if (!title || !description || !location) {
       return res.status(400).json({ error: "title, description and location are required" });
     }
+
+    const actualLat = lat != null ? lat : coords?.lat;
+    const actualLng = lng != null ? lng : coords?.lng;
+
+    // Step 1: Resolve LGD Directory Hierarchy (State -> District -> Sub-District)
+    const lgdData = resolveLgdLocation(actualLat, actualLng, location, {
+      state_code,
+      district_code,
+      district_name,
+      subdistrict_code,
+      subdistrict_name,
+      village_name,
+    });
+
+    // Check location restriction variable from .env
+    const allowAllLocations = process.env.ALLOW_ALL_LOCATIONS !== "false";
+    if (!allowAllLocations && lgdData.state_code !== "20") {
+      return res.status(403).json({
+        error: `Problem reporting is currently restricted to Jharkhand state only. Your detected location is in ${lgdData.state_name} (State Code: ${lgdData.state_code}). To allow reporting from any location, set ALLOW_ALL_LOCATIONS=true in .env.`,
+        lgd: lgdData,
+      });
+    }
+
+    // Step 2: Problem / AI Classification
     const { category, confidence } = aiClassify(`${title} ${description}`);
+
+    // Step 3: Authority Mapping Engine
+    // Query registered government body officials to match area jurisdiction
+    const officers = await User.find({ role: "government" });
+    const mappedAuthority = mapAuthority(lgdData, category, officers);
+
     const id = "PS-" + nanoid(6).toUpperCase();
-    const historyEntries = ["Reported by citizen (GPS verified)"];
+    const historyEntries = [
+      `Reported by citizen with GPS location: ${location}`,
+    ];
     if (photo_url) historyEntries.push("Photo evidence attached");
+    historyEntries.push(
+      `LGD Directory mapped: State: ${lgdData.state_name} (${lgdData.state_code}) → District: ${lgdData.district_name} (${lgdData.district_code}) → Sub-District: ${lgdData.subdistrict_name} (${lgdData.subdistrict_code})`
+    );
     historyEntries.push(`AI categorised as ${category} (${confidence}%)`);
-    historyEntries.push("Forwarded to Government Official for review & university allocation");
+    historyEntries.push(
+      `Authority Mapping Engine: Assigned to ${mappedAuthority.authority_designation} (${mappedAuthority.authority_name}) [${mappedAuthority.authority_department}]`
+    );
+    historyEntries.push(
+      `Complaint entered into ${mappedAuthority.authority_designation} official complaint queue`
+    );
 
     const problem = await Problem.create({
       _id: id,
@@ -103,8 +275,32 @@ router.post(
       photo_url: photo_url || null,
       status: "pending_review",
       history: historyEntries,
+      // LGD hierarchy details
+      state_code: lgdData.state_code,
+      state_name: lgdData.state_name,
+      district_code: lgdData.district_code,
+      district_name: lgdData.district_name,
+      subdistrict_code: lgdData.subdistrict_code,
+      subdistrict_name: lgdData.subdistrict_name,
+      panchayat_code: null,
+      panchayat_name: null,
+      village_code: null,
+      village_name: village_name || null,
+      lgd_hierarchy_code: lgdData.lgd_hierarchy_code,
+      // Matched Authority
+      assigned_authority_id: mappedAuthority.authority_id,
+      assigned_authority_name: mappedAuthority.authority_name,
+      assigned_authority_username: mappedAuthority.authority_username,
+      assigned_authority_designation: mappedAuthority.authority_designation,
+      assigned_authority_department: mappedAuthority.authority_department,
+      assigned_authority_scope: mappedAuthority.authority_scope,
     });
-    res.status(201).json({ problem: serializeProblem(problem) });
+
+    res.status(201).json({
+      problem: serializeProblem(problem),
+      lgd: lgdData,
+      authority: mappedAuthority,
+    });
   })
 );
 

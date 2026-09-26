@@ -12,6 +12,7 @@ import {
   ArrowRight,
   Clock,
   CheckCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { COLORS } from "../theme.js";
 import { Field, Btn, Badge, inputStyle } from "../components/ui.jsx";
@@ -40,6 +41,28 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
   const [coords, setCoords] = useState(null);
   const [gpsStatus, setGpsStatus] = useState("loading"); // 'loading' | 'success' | 'fallback'
 
+  // LGD Directory and Authority Mapping state
+  const [lgdDirectory, setLgdDirectory] = useState(null);
+  const [allowAllLocations, setAllowAllLocations] = useState(true);
+  const [resolvedLgd, setResolvedLgd] = useState({
+    state_code: "20",
+    state_name: "Jharkhand",
+    district_code: "328",
+    district_name: "Ranchi",
+    subdistrict_code: "02341",
+    subdistrict_name: "Lalpur",
+    lgd_hierarchy_code: "LGD-20-328-02341",
+    is_allowed: true,
+  });
+  const [mappedAuthority, setMappedAuthority] = useState({
+    authority_name: "Sri Arvind Kumar, IAS",
+    authority_designation: "District Innovation & Development Officer (DIO)",
+    authority_department: "District Collectorate & Innovation Council",
+    authority_scope: "district",
+    matched_level: "District",
+  });
+  const [showLgdPicker, setShowLgdPicker] = useState(false);
+
   const [photoUrl, setPhotoUrl] = useState(null);
   const [photoName, setPhotoName] = useState("");
   const [showCameraModal, setShowCameraModal] = useState(false);
@@ -51,7 +74,41 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  // Auto-fetch GPS coordinates directly without asking user to manually enter location
+  // Load LGD directory & location restriction config from backend
+  useEffect(() => {
+    api.lgdDirectory()
+      .then((d) => {
+        if (d) setLgdDirectory(d);
+      })
+      .catch((err) => console.warn("LGD Directory load error:", err));
+
+    api.lgdConfig()
+      .then((cfg) => {
+        if (cfg && typeof cfg.allow_all_locations === "boolean") {
+          setAllowAllLocations(cfg.allow_all_locations);
+        }
+      })
+      .catch((err) => console.warn("LGD Config load notice:", err));
+  }, []);
+
+  // Resolve LGD and mapped authority whenever coordinates or location string updates
+  async function triggerLgdResolution(lat, lng, locStr, explicit = null) {
+    try {
+      const res = await api.resolveLgd({
+        lat,
+        lng,
+        location: locStr,
+        explicit: explicit || undefined,
+        category: title ? "General" : undefined,
+      });
+      if (res?.lgd) setResolvedLgd(res.lgd);
+      if (res?.authority) setMappedAuthority(res.authority);
+    } catch (e) {
+      console.warn("LGD resolution error:", e);
+    }
+  }
+
+  // Auto-fetch GPS coordinates directly and reverse geocode address codes
   function fetchGpsLocation() {
     setGpsStatus("loading");
     if (!navigator.geolocation) {
@@ -59,6 +116,7 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
       setLocation(fallbackLoc);
       setCoords({ lat: 23.3441, lng: 85.3096 });
       setGpsStatus("fallback");
+      triggerLgdResolution(23.3441, 85.3096, fallbackLoc);
       return;
     }
 
@@ -69,9 +127,11 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
         const acc = pos.coords.accuracy;
         setCoords({ lat, lng, accuracy: acc });
 
+        let detectedLoc = `(${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E)`;
+        let explicitHints = {};
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2000);
+          const timeoutId = setTimeout(() => controller.abort(), 3500);
           const res = await fetch(
             `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
             { signal: controller.signal }
@@ -79,18 +139,28 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
           clearTimeout(timeoutId);
           if (res.ok) {
             const data = await res.json();
-            const town = data.address?.city || data.address?.town || data.address?.village || data.address?.suburb || "Jharkhand";
-            const dist = data.address?.county || data.address?.state_district || "Jharkhand";
-            setLocation(`${town}, ${dist} (${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E)`);
-            setGpsStatus("success");
-            return;
+            const addr = data.address || {};
+            const stateName = addr.state || "";
+            const districtName = addr.county || addr.state_district || addr.district || "";
+            const townName = addr.city || addr.town || addr.village || addr.suburb || addr.neighbourhood || "";
+            const subdistrictName = addr.tehsil || addr.subdistrict || addr.county || townName || "Central";
+
+            const parts = [townName, subdistrictName, districtName, stateName].filter(Boolean);
+            const uniqueParts = [...new Set(parts)];
+            detectedLoc = `${uniqueParts.join(", ")} (${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E)`;
+            explicitHints = {
+              state_name: stateName,
+              district_name: districtName,
+              subdistrict_name: subdistrictName,
+            };
           }
         } catch {
-          // fallback to coordinate string if reverse geocoding is offline
+          // fallback
         }
 
-        setLocation(`Jharkhand (${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E)`);
+        setLocation(detectedLoc);
         setGpsStatus("success");
+        triggerLgdResolution(lat, lng, detectedLoc, explicitHints);
       },
       (err) => {
         console.warn("Geolocation fallback:", err.message);
@@ -98,9 +168,78 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
         setLocation(fallbackLoc);
         setCoords({ lat: 23.3441, lng: 85.3096 });
         setGpsStatus("fallback");
+        triggerLgdResolution(23.3441, 85.3096, fallbackLoc);
       },
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
     );
+  }
+
+  // Predefined states and districts helpers
+  const statesList = lgdDirectory?.states || [
+    { code: "20", name: "Jharkhand" },
+    { code: "23", name: "Madhya Pradesh" },
+    { code: "10", name: "Bihar" },
+    { code: "09", name: "Uttar Pradesh" },
+    { code: "07", name: "Delhi" },
+    { code: "27", name: "Maharashtra" },
+    { code: "19", name: "West Bengal" },
+    { code: "21", name: "Odisha" },
+  ];
+
+  const currentDistricts = (lgdDirectory?.districts?.[resolvedLgd.state_code] || lgdDirectory?.districts?.["20"] || []);
+  const currentDistrictObj = currentDistricts.find((d) => d.code === resolvedLgd.district_code) || currentDistricts[0];
+  const currentSubdistricts = currentDistrictObj?.subdistricts || [];
+
+  // Manually select State from LGD Directory
+  function handleSelectLgdState(stateCode) {
+    const st = statesList.find((s) => s.code === stateCode);
+    if (!st) return;
+    const dists = lgdDirectory?.districts?.[stateCode] || [];
+    const dist = dists[0] || { code: "101", name: `${st.name} Central`, subdistricts: [{ code: "01001", name: "Central" }] };
+    const sub = dist.subdistricts?.[0] || { code: "01001", name: "Central" };
+    const explicit = {
+      state_code: st.code,
+      state_name: st.name,
+      district_code: dist.code,
+      district_name: dist.name,
+      subdistrict_code: sub.code,
+      subdistrict_name: sub.name,
+    };
+    setLocation(`${sub.name}, ${dist.name}, ${st.name}`);
+    triggerLgdResolution(st.lat || 23.6, st.lng || 85.2, `${sub.name}, ${dist.name}`, explicit);
+  }
+
+  // Manually select District from LGD Directory
+  function handleSelectLgdDistrict(distCode) {
+    const dist = currentDistricts.find((d) => d.code === distCode);
+    if (!dist) return;
+    const sub = dist.subdistricts?.[0] || { code: "01001", name: "Central" };
+    const explicit = {
+      state_code: resolvedLgd.state_code,
+      state_name: resolvedLgd.state_name,
+      district_code: dist.code,
+      district_name: dist.name,
+      subdistrict_code: sub.code,
+      subdistrict_name: sub.name,
+    };
+    setLocation(`${sub.name}, ${dist.name}, ${resolvedLgd.state_name}`);
+    triggerLgdResolution(dist.lat, dist.lng, `${sub.name}, ${dist.name}`, explicit);
+  }
+
+  // Manually select Sub-District (Block / Tehsil) from LGD Directory
+  function handleSelectLgdSubdistrict(subCode) {
+    const sub = currentSubdistricts.find((s) => s.code === subCode);
+    if (!sub) return;
+    const explicit = {
+      state_code: resolvedLgd.state_code,
+      state_name: resolvedLgd.state_name,
+      district_code: resolvedLgd.district_code,
+      district_name: resolvedLgd.district_name,
+      subdistrict_code: sub.code,
+      subdistrict_name: sub.name,
+    };
+    setLocation(`${sub.name}, ${resolvedLgd.district_name}, ${resolvedLgd.state_name}`);
+    triggerLgdResolution(coords?.lat, coords?.lng, `${sub.name}, ${resolvedLgd.district_name}`, explicit);
   }
 
   useEffect(() => {
@@ -145,24 +284,24 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
       <div>
         <SectionTitle>{t.submitTitle}</SectionTitle>
 
-        {/* Prominent Forwarded-to-Government Success Banner */}
+        {/* Prominent Forwarded-to-Government Success Banner with Architectural Flow */}
         {submittedSuccess && (
           <div
             style={{
               background: "#eef7ee",
               border: `1.5px solid ${COLORS.forest}`,
-              borderRadius: 12,
-              padding: "16px 20px",
-              marginBottom: 20,
-              maxWidth: 560,
-              boxShadow: "0 4px 14px rgba(45,90,60,0.12)",
+              borderRadius: 14,
+              padding: "20px 22px",
+              marginBottom: 24,
+              maxWidth: 580,
+              boxShadow: "0 6px 18px rgba(45,90,60,0.12)",
             }}
           >
             <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
               <div
                 style={{
-                  width: 40,
-                  height: 40,
+                  width: 44,
+                  height: 44,
                   borderRadius: "50%",
                   background: COLORS.forest,
                   display: "flex",
@@ -172,42 +311,73 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
                   color: "#fff",
                 }}
               >
-                <CheckCircle size={22} />
+                <CheckCircle size={24} />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: COLORS.forestDark, marginBottom: 4 }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: COLORS.forestDark, marginBottom: 4 }}>
                   {lang === "hi"
-                    ? "समस्या दर्ज हुई और सरकारी अधिकारी को भेजी गई!"
-                    : lang === "khortha" || lang === "kht"
-                    ? "समस्या दरज भेल आर सरकारी अधिकारी के भेजल गेल!"
-                    : "Problem Submitted & Forwarded to Government Official!"}
+                    ? "समस्या दर्ज हुई — LGD एवं प्राधिकारी मैपिंग संपन्न!"
+                    : "Problem Registered & Authority Queue Mapped!"}
                 </div>
-                <div style={{ fontSize: 13, color: COLORS.charcoal, marginBottom: 8, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 13, color: COLORS.charcoal, marginBottom: 12, lineHeight: 1.5 }}>
                   {lang === "hi"
-                    ? `आपकी समस्या #${submittedSuccess.id} दर्ज कर ली गई है और समीक्षा हेतु सरकारी अधिकारी के पोर्टल पर अग्रेषित कर दी गई है।`
-                    : `Your issue (ID: ${submittedSuccess.id}) with attached photo evidence has been forwarded to Government Officials for review and university allocation.`}
+                    ? `शिकायत #${submittedSuccess.id} को LGD निर्देशिका से सत्यापित कर संबंधित क्षेत्र के सरकारी अधिकारी की कतार में स्थानांतरित कर दिया गया है।`
+                    : `Complaint #${submittedSuccess.id} resolved via LGD Directory and routed to designated Government Official.`}
                 </div>
+
+                {/* Architectural Pipeline Status Diagram */}
                 <div
                   style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: "rgba(45,90,60,0.12)",
-                    color: COLORS.forest,
-                    padding: "4px 10px",
-                    borderRadius: 6,
+                    background: "#fff",
+                    border: `1.5px solid ${COLORS.line}`,
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                    marginBottom: 14,
                     fontSize: 12,
-                    fontWeight: 700,
-                    marginBottom: 12,
                   }}
                 >
-                  <Clock size={13} />
-                  <span>
-                    {lang === "hi"
-                      ? "वर्तमान स्थिति: सरकारी समीक्षाधीन (Pending Govt. Review)"
-                      : "Current Status: Pending Government Official Review"}
-                  </span>
+                  <div style={{ fontWeight: 700, color: COLORS.forestDark, marginBottom: 8, fontSize: 12.5 }}>
+                    📍 Architecture Execution Flow:
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "#e8f0fe", color: "#1a73e8", padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 10.5 }}>STEP 1</span>
+                      <span style={{ color: COLORS.charcoal }}><b>Location Service:</b> {submittedSuccess.lgd_hierarchy_code || "LGD Verified"}</span>
+                    </div>
+
+                    <div style={{ paddingLeft: 18, fontSize: 11.5, color: COLORS.ink }}>
+                      ↳ {submittedSuccess.state_name || "Jharkhand"} ({submittedSuccess.state_code || "20"}) → {submittedSuccess.district_name || "Ranchi"} ({submittedSuccess.district_code || "328"}) → Sub-District: {submittedSuccess.subdistrict_name || "Lalpur"} ({submittedSuccess.subdistrict_code || "02341"})
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "#fef3c7", color: "#b45309", padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 10.5 }}>STEP 2</span>
+                      <span style={{ color: COLORS.charcoal }}><b>AI Classification:</b> {submittedSuccess.category} ({submittedSuccess.confidence || 90}% confidence)</span>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "#e0eee0", color: COLORS.forest, padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 10.5 }}>STEP 3</span>
+                      <span style={{ color: COLORS.charcoal }}>
+                        <b>Authority Mapping Engine:</b> {submittedSuccess.assigned_authority_designation || "District Innovation Officer"}
+                      </span>
+                    </div>
+
+                    <div style={{ paddingLeft: 18, fontSize: 11.5, color: COLORS.forest, fontWeight: 600 }}>
+                      ↳ Officer: {submittedSuccess.assigned_authority_name || "District Innovation Officer"} (Username: <code>{submittedSuccess.assigned_authority_username || "officer.ranchi"}</code>)
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "#f3e8ff", color: "#7e22ce", padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 10.5 }}>STEP 4</span>
+                      <span style={{ color: COLORS.charcoal }}><b>Complaint Queue:</b> Active in {submittedSuccess.assigned_authority_scope ? submittedSuccess.assigned_authority_scope.toUpperCase() : "AREA"} Official Queue</span>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: "#ecfdf5", color: "#047857", padding: "1px 6px", borderRadius: 4, fontWeight: 700, fontSize: 10.5 }}>STEP 5</span>
+                      <span style={{ color: COLORS.charcoal }}><b>Status / Tracking:</b> Live Tracking Active</span>
+                    </div>
+                  </div>
                 </div>
+
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {setActiveTab && (
                     <button
@@ -230,7 +400,7 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
                         gap: 6,
                       }}
                     >
-                      <span>{lang === "hi" ? "मेरी समस्याएं देखें" : "View in My Problems"}</span>
+                      <span>{lang === "hi" ? "मेरी शिकायतें देखें" : "View in My Complaints"}</span>
                       <ArrowRight size={14} />
                     </button>
                   )}
@@ -350,6 +520,204 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
                 <RefreshCw size={13} style={{ animation: gpsStatus === "loading" ? "spin 1s linear infinite" : "none" }} />
                 <span>{t.gpsRefresh}</span>
               </button>
+            </div>
+
+            {/* LOCATION RESTRICTION STATUS INDICATOR */}
+            {!allowAllLocations && resolvedLgd?.state_code !== "20" ? (
+              <div
+                style={{
+                  marginTop: 10,
+                  background: "#fff5f5",
+                  border: "1.5px solid #e53e3e",
+                  borderRadius: 10,
+                  padding: "11px 14px",
+                  color: "#9b2c2c",
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                }}
+              >
+                <div style={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <AlertTriangle size={16} color="#e53e3e" />
+                  <span>Reporting Restricted to Jharkhand State Only</span>
+                </div>
+                <div>
+                  Your location is detected in <b>{resolvedLgd.state_name}</b> (LGD State Code: <code>{resolvedLgd.state_code}</code>).
+                  By administrator configuration (<code>ALLOW_ALL_LOCATIONS=false</code> in <code>.env</code>), problem submissions from other states are blocked.
+                </div>
+                <div style={{ marginTop: 4, fontSize: 11.5, color: "#742a2a" }}>
+                  To allow problem reporting from any state or location across India, set <code>ALLOW_ALL_LOCATIONS=true</code> in <code>.env</code>.
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: "6px 10px",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: 8,
+                  color: "#166534",
+                  fontSize: 11.5,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <CheckCircle2 size={14} color="#16a34a" />
+                  <span>
+                    {resolvedLgd?.state_code === "20"
+                      ? "Location verified inside Jharkhand state"
+                      : `Nationwide reporting enabled (.env: ALLOW_ALL_LOCATIONS=true) — Verified in ${resolvedLgd?.state_name}`}
+                  </span>
+                </div>
+                <span style={{ fontSize: 10.5, background: "#dcfce7", padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>
+                  LGD Validated
+                </span>
+              </div>
+            )}
+
+            {/* LOCATION SERVICE & LGD DIRECTORY HIERARCHY CARD */}
+            <div
+              style={{
+                marginTop: 10,
+                background: "#f8fbf8",
+                border: `1.5px solid #c8dec8`,
+                borderRadius: 10,
+                padding: "12px 14px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: COLORS.forestDark, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>📍 {t.lgdDirectoryTitle || "Local Government Directory (LGD)"}</span>
+                  <span style={{ fontSize: 10, background: "#d1ead1", color: COLORS.forestDark, padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>
+                    {resolvedLgd.lgd_hierarchy_code || `LGD-${resolvedLgd.state_code || "20"}-${resolvedLgd.district_code || "328"}-${resolvedLgd.subdistrict_code || "02341"}`}
+                  </span>
+                </div>
+                {lgdDirectory && (
+                  <button
+                    type="button"
+                    onClick={() => setShowLgdPicker(!showLgdPicker)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: COLORS.forest,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    {showLgdPicker ? "Hide Hierarchy Selectors" : "Pinpoint State / District / Block"}
+                  </button>
+                )}
+              </div>
+
+              {/* LGD Breadcrumb Lineage */}
+              <div style={{ fontSize: 11.5, color: COLORS.charcoal, lineHeight: 1.5, background: "#fff", padding: "8px 10px", borderRadius: 6, border: `1px solid ${COLORS.line}` }}>
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                  <span style={{ fontWeight: 600 }}>State:</span> <b>{resolvedLgd.state_name || "Jharkhand"}</b> <code style={{ fontSize: 10, color: COLORS.ink }}>[{resolvedLgd.state_code || "20"}]</code>
+                  <span style={{ color: COLORS.ink }}>→</span>
+                  <span style={{ fontWeight: 600 }}>District:</span> <b>{resolvedLgd.district_name || "Ranchi"}</b> <code style={{ fontSize: 10, color: COLORS.ink }}>[{resolvedLgd.district_code || "328"}]</code>
+                  <span style={{ color: COLORS.ink }}>→</span>
+                  <span style={{ fontWeight: 600 }}>Sub-District / Block:</span> <b>{resolvedLgd.subdistrict_name || "Lalpur"}</b> <code style={{ fontSize: 10, color: COLORS.ink }}>[{resolvedLgd.subdistrict_code || "02341"}]</code>
+                </div>
+              </div>
+
+              {/* Optional Manual LGD Hierarchy Selectors (State -> District -> Sub-District) */}
+              {showLgdPicker && lgdDirectory && (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, background: "#fff", padding: 10, borderRadius: 8, border: `1px solid ${COLORS.line}` }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: COLORS.ink, display: "block", marginBottom: 3 }}>
+                      State:
+                    </label>
+                    <select
+                      style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}
+                      value={resolvedLgd.state_code || "20"}
+                      onChange={(e) => handleSelectLgdState(e.target.value)}
+                    >
+                      {statesList.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.name} ({s.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: COLORS.ink, display: "block", marginBottom: 3 }}>
+                      District:
+                    </label>
+                    <select
+                      style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}
+                      value={resolvedLgd.district_code || ""}
+                      onChange={(e) => handleSelectLgdDistrict(e.target.value)}
+                    >
+                      {currentDistricts.map((d) => (
+                        <option key={d.code} value={d.code}>
+                          {d.name} ({d.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: COLORS.ink, display: "block", marginBottom: 3 }}>
+                      Block / Sub-District:
+                    </label>
+                    <select
+                      style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}
+                      value={resolvedLgd.subdistrict_code || ""}
+                      onChange={(e) => handleSelectLgdSubdistrict(e.target.value)}
+                    >
+                      {currentSubdistricts.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.name} ({s.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* AUTHORITY MAPPING ENGINE PREVIEW */}
+              {mappedAuthority && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: "8px 10px",
+                    background: "#eaf3ea",
+                    borderRadius: 6,
+                    border: `1px dashed ${COLORS.forest}`,
+                    fontSize: 11.5,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                    <div>
+                      <span style={{ fontWeight: 700, color: COLORS.forestDark }}>
+                        🏛️ {t.authorityMappingTitle || "Authority Mapping Engine"}:
+                      </span>{" "}
+                      <span style={{ color: COLORS.charcoal }}>
+                        Assigned to <b>{mappedAuthority.authority_designation || "District Innovation Officer"}</b> ({mappedAuthority.authority_name})
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        background: COLORS.forest,
+                        color: "#fff",
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Target Queue: {mappedAuthority.matched_level || "District"} Level
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Field>
 
@@ -528,7 +896,14 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
 
           <Btn
             icon={Send}
-            disabled={busy || optimizingImage || !title || !desc || !location}
+            disabled={
+              busy ||
+              optimizingImage ||
+              !title ||
+              !desc ||
+              !location ||
+              (!allowAllLocations && resolvedLgd?.state_code !== "20")
+            }
             onClick={async () => {
               setBusy(true);
               setError("");
@@ -538,7 +913,14 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
                   title,
                   description: desc,
                   location,
+                  lat: coords?.lat,
+                  lng: coords?.lng,
                   photo_url: photoUrl || undefined,
+                  state_code: resolvedLgd?.state_code,
+                  district_code: resolvedLgd?.district_code,
+                  district_name: resolvedLgd?.district_name,
+                  subdistrict_code: resolvedLgd?.subdistrict_code,
+                  subdistrict_name: resolvedLgd?.subdistrict_name,
                 });
                 setTitle("");
                 setDesc("");
@@ -553,7 +935,11 @@ export default function CitizenDash({ tab, setActiveTab, lang, t, onOpen, refres
               }
             }}
           >
-            {busy ? (lang === "hi" ? "जमा हो रहा है..." : "Submitting...") : t.submit}
+            {busy
+              ? (lang === "hi" ? "जमा हो रहा है..." : "Submitting...")
+              : !allowAllLocations && resolvedLgd?.state_code !== "20"
+              ? (lang === "hi" ? "स्थान प्रतिबंधित (केवल झारखंड)" : "Blocked: Outside Jharkhand State")
+              : t.submit}
           </Btn>
 
           <div style={{ marginTop: 14, fontSize: 11.5, color: COLORS.ink, display: "flex", gap: 6, alignItems: "flex-start" }}>
